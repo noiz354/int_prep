@@ -19,6 +19,7 @@ test('requestLogger sets x-request-id and emits structured JSON with bounded lab
   const next = () => {};
   requestLogger(logger)(req, res, next);
   assert.equal(res['x-request-id'], 'req-123');
+  assert.equal(res['x-trace-id'], 'req-123');
   res.statusCode = 200;
   res._finish();
   const parsed = JSON.parse(lines[0]);

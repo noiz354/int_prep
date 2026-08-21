@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react';
-import { addArtifact, askRag, createOpportunity, demoData, importEmail, listProviders, registerConnector, requestExport, reviewImport, setProviderEnabled } from './lib/vaultApi.js';
+import { useEffect, useState } from 'react';
+import { addArtifact, askRag, createOpportunity, createShare, excludeArtifact, getDashboard, importEmail, isRemote, listProviders, loginDemo, readSession, registerConnector, requestDeletion, requestExport, reviewImport, setProviderEnabled } from './lib/vaultApi.js';
+import { CapabilityStatus } from './CapabilityStatus.jsx';
 
 const navItems = [
   ['timeline', 'Timeline', '◔'],
@@ -20,20 +21,47 @@ function EmptyState({ icon, children }) {
   return <div className="vault-empty"><span>{icon}</span><p>{children}</p></div>;
 }
 
+function SignIn({ onSignedIn }) {
+  const [busy, setBusy] = useState('');
+  const [error, setError] = useState('');
+  const demo = async (email) => {
+    setBusy(email); setError('');
+    try { onSignedIn(await loginDemo(email)); } catch (reason) { setError(reason.message); } finally { setBusy(''); }
+  };
+  return <main className="vault-main" style={{ marginLeft: 0, display: 'grid', placeItems: 'center', minHeight: '100vh' }}>
+    <article className="vault-card" style={{ maxWidth: 420, padding: 28 }}>
+      <span className="vault-eyebrow">COMPASS VAULT</span>
+      <h2>Sign in to your private vault</h2>
+      <p className="vault-micro">Use the labelled demo candidate identity. Maya (talent ops) cannot open another person’s vault.</p>
+      {error && <p role="alert">{error}</p>}
+      <button className="vault-primary full" disabled={Boolean(busy)} onClick={() => demo('alex.morgan@example.test')}>{busy ? 'Signing in…' : 'Use demo identity · Alex (candidate)'}</button>
+    </article>
+  </main>;
+}
+
 export function App() {
+  const [session, setSession] = useState(() => readSession());
   const [active, setActive] = useState('timeline');
-  const [opportunities, setOpportunities] = useState(demoData.demoOpportunities);
-  const [artifacts, setArtifacts] = useState(demoData.demoArtifacts);
-  const [timeline, setTimeline] = useState(demoData.demoTimeline);
+  const [opportunities, setOpportunities] = useState([]);
+  const [artifacts, setArtifacts] = useState([]);
+  const [timeline, setTimeline] = useState([]);
   const [imports, setImports] = useState([]);
   const [providers, setProviders] = useState([]);
   const [consent, setConsent] = useState({ recording: false, transcript: false, emailImport: false, calendarImport: false });
   const [toast, setToast] = useState('');
   const [loading, setLoading] = useState('');
+  const [lockout, setLockout] = useState('');
+  const [connectorId, setConnectorId] = useState('');
 
-  useMemo(() => {
+  const reload = async () => {
+    const dash = await getDashboard();
+    setOpportunities(dash.opportunities || []);
+    setArtifacts(dash.artifacts || []);
+    setTimeline(dash.timeline || []);
     listProviders().then(setProviders).catch(() => setProviders([]));
-  }, []);
+  };
+
+  useEffect(() => { if (session) reload().catch((error) => notify(error.message)); }, [session]);
 
   const notify = (message) => {
     setToast(message);
@@ -59,7 +87,7 @@ export function App() {
     setLoading('art');
     try {
       const created = await addArtifact({ kind: form.get('kind'), title: form.get('title'), content: form.get('content'), competency: form.get('competency'), consent: { recording: consent.recording, transcript: consent.transcript, rightsConfirmed: true } });
-      setArtifacts((items) => [created, ...items]);
+      setArtifacts((items) => [{ ...created, date: created.createdAt?.slice(0, 10) }, ...items]);
       notify('Artifact stored privately by default. Nothing is shared without your consent.');
     } catch (error) { notify(error.message); }
     finally { setLoading(''); }
@@ -85,11 +113,12 @@ export function App() {
     try {
       if (!consent.emailImport) {
         const connector = await registerConnector({ provider: 'gmail', scopeLabel: 'Application receipts and recruiter messages', candidateApprovedAt: new Date().toISOString(), candidateSelectedFolders: ['Receipts', 'Recruiters'] });
+        setConnectorId(connector.id);
         toggleConsent('emailImport');
-        notify('Gmail connector registered with minimal scopes. Choose eligible folders before import.');
+        notify('Local paste-import connector registered. Gmail OAuth is still blocked on decision. Enable Email import in Trust, then import for review.');
         return;
       }
-      const imported = await importEmail({ connectorId: 'connector-gmail-demo', subject: form.get('subject'), from: form.get('from') || 'recruiter@company.com', receivedAt: new Date().toISOString(), body: form.get('body'), eligibleFolder: true, scopeLabel: 'Application receipts and recruiter messages', candidateConsentedFolder: consent.emailImport });
+      const imported = await importEmail({ connectorId: connectorId || 'missing', subject: form.get('subject'), from: form.get('from') || 'recruiter@company.com', receivedAt: new Date().toISOString(), body: form.get('body') || 'Thanks for applying at Northwind Labs.', eligibleFolder: true, scopeLabel: 'Application receipts and recruiter messages', candidateConsentedFolder: consent.emailImport });
       setImports((items) => [imported, ...items]);
       notify('Email received and held for your review. Nothing enters your timeline until you approve.');
     } catch (error) { notify(error.message); }
@@ -108,15 +137,28 @@ export function App() {
 
   const content = {
     timeline: <Timeline opportunities={opportunities} timeline={timeline} saveOpportunity={saveOpportunity} loading={loading} />,
-    vault: <Vault artifacts={artifacts} consent={consent} toggleConsent={toggleConsent} saveArtifact={saveArtifact} loading={loading} imports={imports} runEmailImport={runEmailImport} decideImport={decideImport} />,
-    coach: <CareerCoach artifacts={artifacts} notify={notify} />,
-    trust: <Trust consent={consent} toggleConsent={toggleConsent} notify={notify} artifacts={artifacts} opportunities={opportunities} timeline={timeline} providers={providers} toggleProvider={toggleProvider} loading={loading} />,
+    vault: <Vault artifacts={artifacts} consent={consent} toggleConsent={toggleConsent} saveArtifact={saveArtifact} loading={loading} imports={imports} runEmailImport={runEmailImport} decideImport={decideImport} excludeArtifact={async (id) => { await excludeArtifact(id); await reload(); notify('Artifact excluded from future retrieval.'); }} />,
+    coach: <CareerCoach artifacts={artifacts} notify={notify} lockout={lockout} tryLockout={async () => {
+      try {
+        await askRag({ question: 'Help me during the live interview', sessionContext: 'live_assessment' });
+        setLockout('unexpected-allow');
+      } catch (error) { setLockout(error.message); notify(error.message); }
+    }} />,
+    trust: <Trust consent={consent} toggleConsent={toggleConsent} notify={notify} artifacts={artifacts} opportunities={opportunities} timeline={timeline} providers={providers} toggleProvider={toggleProvider} loading={loading} share={async () => {
+      if (!artifacts[0]) return notify('Store an artifact before sharing.');
+      try {
+        await createShare({ recipientRole: 'coach', fields: ['notes'], artifactIds: [artifacts[0].id], candidateApprovedAt: new Date().toISOString() });
+        notify('Granular share grant recorded. Employer evaluation data stays excluded.');
+      } catch (error) { notify(error.message); }
+    }} deleteAll={async () => { await requestDeletion({ candidateApprovedAt: new Date().toISOString(), sessionContext: 'career_planning' }); await reload(); notify('Vault data deleted from this store.'); }} />,
   };
+
+  if (isRemote() && !session) return <SignIn onSignedIn={setSession} />;
 
   return <div className="vault-shell">
     <aside className="vault-sidebar" aria-label="Vault navigation">
       <a className="vault-brand" href="#timeline"><span>C</span><b>signalroom <em>compass vault</em></b></a>
-      <div className="vault-mini"><span>AM</span><div><b>Alex Morgan</b><small>Candidate-owned career vault</small></div></div>
+      <div className="vault-mini"><span>{(session?.principal?.name || 'C').split(/\s+/).map((part) => part[0]).join('').slice(0, 2)}</span><div><b>{session?.principal?.name || 'Candidate'}</b><small>Candidate-owned career vault</small></div></div>
       <nav>{navItems.map(([id, label, icon]) => <button key={id} className={active === id ? 'is-active' : ''} onClick={() => setActive(id)} aria-current={active === id ? 'page' : undefined}><span>{icon}</span>{label}</button>)}</nav>
       <div className="vault-sidebar-bottom"><span className="vault-boundary-dot"/> <p><b>Private by default</b><small>No employer or coach sees this unless you share.</small></p></div>
     </aside>
@@ -138,17 +180,17 @@ function Timeline({ opportunities, timeline, saveOpportunity, loading }) {
   </section>;
 }
 
-function Vault({ artifacts, consent, toggleConsent, saveArtifact, loading, imports, runEmailImport, decideImport }) {
+function Vault({ artifacts, consent, toggleConsent, saveArtifact, loading, imports, runEmailImport, decideImport, excludeArtifact }) {
   const pending = imports.filter((item) => item.status === 'awaiting_review');
   return <section className="vault-grid vault-grid">
     <article className="vault-card vault-hero"><div><span className="vault-eyebrow">ARTIFACT VAULT</span><h2>Your evidence.<br/><em>Your control.</em></h2><p>Notes, feedback, recordings, and transcripts stay private by default. Every artifact carries consent, retention, and provenance metadata.</p></div><Badge tone="mint">Private by default</Badge></article>
     <article className="vault-card add-artifact-card"><SectionTitle eyebrow="CAPTURE EVIDENCE" title="Add a note or feedback" /><form onSubmit={saveArtifact} className="vault-form"><label><span>Kind</span><select name="kind" defaultValue="note"><option value="note">Note</option><option value="feedback">Feedback</option><option value="practice_session">Practice session</option><option value="transcript">Transcript</option><option value="document">Document</option></select></label><label><span>Title</span><input name="title" required minLength={2} placeholder="Mock interview feedback" /></label><label><span>Competency</span><input name="competency" placeholder="communication" /></label><label><span>Content</span><textarea name="content" rows={3} placeholder="Add a measurable outcome and concrete evidence." /></label><div className="vault-consent-row"><label className="vault-check"><input type="checkbox" checked={consent.recording} onChange={() => toggleConsent('recording')} /> Recording consent</label><label className="vault-check"><input type="checkbox" checked={consent.transcript} onChange={() => toggleConsent('transcript')} /> Transcript consent</label></div><button className="vault-primary full" disabled={loading === 'art'}>{loading === 'art' ? 'Storing…' : 'Store privately'}</button></form></article>
     <article className="vault-card email-import-card"><SectionTitle eyebrow="EMAIL IMPORT" title="Import a receipt with review-before-save" /><p className="vault-micro">Minimal scopes only. You choose which folders are eligible; nothing enters your timeline until you approve each message.</p><form onSubmit={runEmailImport} className="vault-form"><label><span>Email subject</span><input name="subject" required minLength={2} placeholder="Interview invitation: Senior Frontend Engineer" /></label><label><span>Message body (optional)</span><textarea name="body" rows={2} placeholder="Thanks for applying at Northwind Labs." /></label><button className="vault-primary full" disabled={loading === 'import'}>{loading === 'import' ? 'Processing…' : consent.emailImport ? 'Import for review' : 'Connect Gmail (minimal scopes)'}</button></form>{pending.length ? <div className="vault-pending"><b>Pending your review</b>{pending.map((item) => <article key={item.id}><div><b>{item.parsed?.role || item.subject}</b><small>{item.parsed?.company} · {item.subject}</small></div><div className="vault-pending-actions"><button className="vault-secondary" onClick={() => decideImport(item, 'approve')}>Approve</button><button className="vault-secondary danger" onClick={() => decideImport(item, 'reject')}>Reject</button></div></article>)}</div> : null}</article>
-    <article className="vault-card artifact-list-card"><SectionTitle eyebrow="YOUR ARTIFACTS" title="Candidate-owned records" />{artifacts.length ? artifacts.map((art) => <article className="vault-row" key={art.id}><div><b>{art.title}</b><small>{art.kind.replaceAll('_', ' ') || 'note'} · {art.competency || 'general'} · {art.date}</small><em>{art.content.slice(0, 120)}</em></div><Badge tone={art.excludeFromRetrieval ? 'grey' : 'mint'}>{art.excludeFromRetrieval ? 'Excluded' : 'Private'}</Badge></article>) : <EmptyState icon="◈">Your private artifacts appear here.</EmptyState>}</article>
+    <article className="vault-card artifact-list-card"><SectionTitle eyebrow="YOUR ARTIFACTS" title="Candidate-owned records" />{artifacts.length ? artifacts.map((art) => <article className="vault-row" key={art.id}><div><b>{art.title}</b><small>{(art.kind || 'note').replaceAll('_', ' ')} · {art.competency || 'general'} · {art.date || String(art.createdAt || '').slice(0, 10)}</small><em>{(art.content || '').slice(0, 120)}</em></div><div><Badge tone={art.excludeFromRetrieval ? 'grey' : 'mint'}>{art.excludeFromRetrieval ? 'Excluded' : 'Private'}</Badge><button className="vault-secondary" onClick={() => excludeArtifact(art.id)}>Exclude from RAG</button></div></article>) : <EmptyState icon="◈">Your private artifacts appear here.</EmptyState>}</article>
   </section>;
 }
 
-function CareerCoach({ artifacts, notify }) {
+function CareerCoach({ artifacts, notify, lockout, tryLockout }) {
   const [question, setQuestion] = useState('What feedback patterns about structure and evidence repeat?');
   const [answer, setAnswer] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -156,7 +198,7 @@ function CareerCoach({ artifacts, notify }) {
   const run = async () => {
     setLoading(true);
     try {
-      const result = await askRag({ tenant_id: 'career-vault-demo', candidate_id: 'candidate-alex', session_context: 'career_planning', question, evidence: artifacts.map((a) => ({ artifact_id: a.id, title: a.title, kind: a.kind, content: a.content, source: 'candidate_entered', date: a.date, tenant_id: 'career-vault-demo', candidate_id: 'candidate-alex', competency: a.competency || '' })) });
+      const result = await askRag({ question, sessionContext: 'career_planning' });
       setAnswer(result);
     } catch (error) { notify(error.message); }
     finally { setLoading(false); }
@@ -166,14 +208,14 @@ function CareerCoach({ artifacts, notify }) {
     <article className="vault-card coach-hero"><div><span className="vault-eyebrow">RAG CAREER COACH</span><h2>Ask your own history.<br/><em>Get cited answers.</em></h2><p>Retrieval over your candidate-authorized timeline and artifacts. Every answer cites its sources, shows confidence, or abstains when evidence is insufficient.</p></div><Badge tone="mint">No live-assessment assistance</Badge></article>
     <article className="vault-card ask-card"><SectionTitle eyebrow="ASK" title="Ground a question in your records" /><label><span>Your question</span><textarea rows={3} value={question} onChange={(event) => setQuestion(event.target.value)} /></label><button className="vault-primary full" disabled={loading || question.trim().length < 3} onClick={run}>{loading ? 'Retrieving…' : 'Ask my career coach'}</button></article>
     <article className="vault-card answer-card"><SectionTitle eyebrow="ANSWER" title="Cited, grounded, or abstained" />{answer ? (answer.abstention ? <div className="vault-abstain"><span>◌</span><b>Not enough permitted evidence</b><p>{answer.message}</p><em>Suggested next action: {answer.suggestedNextAction}</em></div> : <><div className="vault-answer"><b>Answer</b><p>{answer.answer}</p></div><div className="vault-citations"><b>Citations</b>{answer.citations.map((c) => <article key={c.artifact_id}><div><b>{c.title}</b><small>{c.date}</small></div><em>{c.excerpt}</em></article>)}</div><div className="vault-confidence">Confidence: {Math.round(answer.confidence * 100)}% · AI inference over candidate-authorized evidence only.</div></>) : <EmptyState icon="✦">Ask a question to retrieve cited evidence from your vault.</EmptyState>}</article>
-    <article className="vault-card rules-card"><SectionTitle eyebrow="ANSWER RULES" title="How answers stay honest" /><div className="vault-rule-list"><span>✓ Cites candidate-owned sources and timestamps</span><span>✓ Separates fact, reflection, and inference</span><span>✓ Shows confidence and missing evidence</span><span>✓ Abstains when evidence is insufficient</span><span>✓ Never hidden employer reasoning or hiring predictions</span></div></article>
+    <article className="vault-card rules-card"><SectionTitle eyebrow="ANSWER RULES" title="How answers stay honest" /><div className="vault-rule-list"><span>✓ Cites candidate-owned sources and timestamps</span><span>✓ Separates fact, reflection, and inference</span><span>✓ Shows confidence and missing evidence</span><span>✓ Abstains when evidence is insufficient</span><span>✓ Never hidden employer reasoning or hiring predictions</span></div><button className="vault-secondary full" onClick={tryLockout}>Try live-assessment context (must fail)</button>{lockout && <p className="vault-micro" role="status">{lockout}</p>}</article>
   </section>;
 }
 
-function Trust({ consent, toggleConsent, notify, artifacts, opportunities, timeline, providers, toggleProvider, loading }) {
+function Trust({ consent, toggleConsent, notify, artifacts, opportunities, timeline, providers, toggleProvider, loading, share, deleteAll }) {
   const exportData = async () => {
     notify('Queued a candidate-owned export of your timeline, artifacts, and metadata for review.');
-    await requestExport({ include: ['timeline', 'artifacts', 'metadata', 'audit'], candidateApprovedAt: new Date().toISOString() }).catch(() => {});
+    await requestExport({ include: ['timeline', 'artifacts', 'metadata', 'audit'], candidateApprovedAt: new Date().toISOString(), sessionContext: 'career_planning' }).catch((error) => notify(error.message));
   };
   return <section className="vault-grid trust-grid">
     <article className="vault-card trust-hero"><div><span className="vault-eyebrow">TRUST & DATA</span><h2>Private by default.<br/><em>Shared by choice.</em></h2><p>Your career vault is candidate-owned. Nothing is shared with employers, recruiters, or coaches without explicit, granular, audited consent.</p></div><Badge tone="mint">Candidate private</Badge></article>
@@ -181,5 +223,6 @@ function Trust({ consent, toggleConsent, notify, artifacts, opportunities, timel
     <article className="vault-card providers-card"><SectionTitle eyebrow="PROVIDER CONNECTIONS" title="Disable now · Connect when available" /><div className="vault-provider-list">{providers.map((provider) => <article className="vault-provider" key={provider.id}><div><b>{provider.label}</b><small>{provider.capability}</small><em>{provider.reason}</em></div>{provider.action === 'blocked' ? <Badge tone="grey">Blocked</Badge> : <button className={`vault-provider-btn ${provider.enabled ? 'is-enabled' : ''}`} disabled={loading === `provider-${provider.id}`} onClick={() => toggleProvider(provider)}>{provider.enabled ? 'Disable' : 'Connect'}</button>}</article>)}</div></article>
     <article className="vault-card data-card"><SectionTitle eyebrow="DATA RIGHTS" title="Export, delete, and control" /><p>Your timeline ({timeline.length} events), artifacts ({artifacts.length}), and opportunities ({opportunities.length}) are candidate-owned. Export includes only candidate-authorized data; deletion propagates through artifacts, transcripts, index, and derived plans.</p><div className="vault-data-actions"><button className="vault-secondary" onClick={exportData}>Request data export</button><button className="vault-secondary danger" onClick={() => notify('A deletion request would start a confirmed, auditable workflow.')}>Request deletion</button></div></article>
     <article className="vault-card boundary-card"><SectionTitle eyebrow="BOUNDARY" title="Preparation and career planning only" /><div className="vault-rule-list"><span>✓ Real-assessment lockout for coaching assistance</span><span>✓ No employer scorecards or confidential hiring deliberation</span><span>✓ No scraping of personal inboxes or social accounts</span><span>✓ Audit log for import, retrieval, share, export, delete</span></div></article>
+    <CapabilityStatus product="vault" />
   </section>;
 }

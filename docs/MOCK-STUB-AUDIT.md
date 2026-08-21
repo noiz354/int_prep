@@ -22,11 +22,11 @@
 
 | Audit ID | File(s) | Current behavior | Classification | Required replacement |
 |---|---|---|---|---|
-| FE-M-01 | `src/data/platformData.js` | Hard-coded current user, metrics, schedule, participants, transcript, copilot, reliability, integrations, scorecard, candidate tasks | Mocked frontend | Query authenticated API/analytics/search/media services; use loading/error/empty states |
+| FE-M-01 | `src/data/platformData.js` | **U2:** Dashboard/Interviews use the API when `VITE_USE_API=true` (empty/loading/error). Seed remains only for local demo mode. Live Studio/Intelligence/Integrations still seeded. | Partial | Remaining screens in U3–U6 |
 | FE-M-02 | `src/data/foundationData.js` | Fixed workflows, requisitions, jobs, schemas, quality, flags, SLOs, analytics, policy, model data | Mocked frontend fallback | Remove as default source; use real control-plane API and persisted data |
 | FE-M-03 | `src/data/completionData.js` | Fixed catalog of final 50 provider-ready actions | Mocked frontend fallback | Replace with actual provider capability/configuration registry and deployment status |
 | FE-M-04 | `src/lib/platformApi.js` | `VITE_USE_API` defaults to local fallback; many actions fabricate local IDs/results after delays | Local adapter | Make real API the normal path; preserve a clearly labelled dev fixture mode only |
-| FE-M-05 | `src/lib/session.js` | Automatically logs in seeded Maya identity through `/api/auth/demo-login` | Development authentication stub | OIDC/SAML/SCIM, MFA/passkeys, secure session lifecycle, tenant membership |
+| FE-M-05 | `src/lib/session.js` | **U1:** no auto Maya login. LoginGate + labelled demo or OIDC. Logout revokes JWT `jti`. | Local session | Wire running Keycloak; drop demo when IdP is required |
 
 ### 1.2 Main product screens using seeded/simulated content
 
@@ -34,23 +34,23 @@
 |---|---|---|---|
 | FE-M-06 | `Dashboard.jsx` | Schedule, metrics, AI briefing, platform health are static | Authenticated dashboard APIs, analytics warehouse, live health telemetry |
 | FE-M-07 | `Interviews.jsx` | Agenda, candidate readiness, panel, status filters are seeded | Persistent interview/scheduling/calendar API and real permissions |
-| FE-M-08 | `LiveStudio.jsx` | CSS avatar video tiles, seeded transcript/copilot, textarea instead of collaboration, local media controls | SFU/WebRTC provider, real tracks, transcript stream, CRDT/Monaco, sandbox, actual collaboration |
-| FE-M-09 | `Intelligence.jsx` | Evidence, confidence, model stats, prompt actions are mostly fixed UI values | Actual AI gateway, retrieval evidence, model registry, review queue, evaluation telemetry |
-| FE-M-10 | `DataPulse.jsx` | Event feed, topics, quality, lineage, retention are static/local control data | Kafka, schema registry, lakehouse/catalog, real quality and lineage APIs |
-| FE-M-11 | `TrustCenter.jsx` | Audit/control cards and policy switches are presentation-heavy | Real policy store, audit query, DLP/KMS/residency controls, immutable audit backend |
-| FE-M-12 | `Operations.jsx` | Service map, SLOs, release list, recovery drill visual state are simulated | OTLP, real SLO/alert service, CI/CD provider, DR execution evidence |
-| FE-M-13 | `Integrations.jsx` | Greenhouse/Google/Slack/Workday connection status is hard-coded | OAuth, secure secrets, field mapping, sync/reconciliation, webhooks/delivery logs |
+| FE-M-08 | `LiveStudio.jsx` | **U3:** user-triggered camera + P2P remote tracks + getDisplayMedia. Transcript/copilot still seeded. Code editor still a textarea. | SFU/LiveKit, ASR transcript, Monaco/CRDT |
+| FE-M-09 | `Intelligence.jsx` | **U4:** Ask path hits the consent-gated gateway; seed quotes removed. Transcript elsewhere still seeded. | Live ASR, Qdrant retrieval when the vector store is up |
+| FE-M-10 | `DataPulse.jsx` | **U6:** tenant event log, quality rules, schema list, lakehouse counts, Redpanda/SR probe. Not Kafka lag. | Kafka metrics, governed catalog |
+| FE-M-11 | `TrustCenter.jsx` | **U6:** audit ledger + verify + residency policy record. Still process-local. | Durable WORM audit, KMS, region pin |
+| FE-M-12 | `Operations.jsx` | **U6:** live provider map, process counters, honest “no on-call”. Not 99.98% theatre. | OTLP-backed SLO, alert route, DR evidence |
+| FE-M-13 | `Integrations.jsx` | **U6:** WireMock = “Sandbox mock”, never “Connected to Greenhouse”. | OAuth apps, field mapping, reconciliation |
 | FE-M-14 | `FoundationHub.jsx` | Real local API may respond, but jobs/artifacts/data quality/flags/SLO/integrations remain in-memory contracts | Durable queue/storage/provider wiring and real operations data |
 | FE-M-15 | `CompletionHub.jsx` | Provider-ready completion actions return deterministic local results | Replace one action/domain at a time with real provider implementation and status |
-| FE-M-16 | `FeatureCatalog.jsx` | All 100 PRD IDs display as implemented foundations | Reclassify each feature truthfully: mocked, local, provider-ready, staging, production |
+| FE-M-16 | `FeatureCatalog.jsx` | **U0–U7:** truthful states from the capability registry. None are staging/production. | Keep labels honest as providers come up |
 
 ### 1.3 Candidate Portal and Candidate Readiness scaffold
 
 | Audit ID | File(s) | Current behavior | Classification | Required replacement |
 |---|---|---|---|---|
-| CR-M-01 | `src/components/CandidatePortal.jsx` | Candidate and interview details are fixed; consent can use local fallback | Partial browser feature + mock content | Real candidate identity, scheduled interview, consent service, accommodation workflow |
-| CR-M-02 | `apps/candidate-readiness-web/src/data/demo.js` | Job, competencies, coaches, scores, availability are fixed | Mocked frontend | Authorized JD ingestion, persisted plans, coach directory/matching/booking APIs |
-| CR-M-03 | `apps/candidate-readiness-web/src/App.jsx` | Readiness journey is a polished demo with no real auth, progress, coach booking, or handoff | Mocked frontend scaffold | Routed authenticated app, API state, accessibility tests, real plan/practice/coach workflows |
+| CR-M-01 | `src/components/CandidatePortal.jsx` | **U3:** invitation token loads the interview; consent hits `/api/public/invitations`. Device preflight remains user-triggered. | Partial | OIDC candidate identity, accommodation booking |
+| CR-M-02 | `apps/candidate-readiness-web/src/data/demo.js` | **U5:** demo.js is labelled seed copy only. API mode starts empty and persists JD/plans/stories. | Partial | Coach roster still empty until created |
+| CR-M-03 | `apps/candidate-readiness-web/src/App.jsx` | **U5:** JWT sign-in (Alex), dashboard from API, lockout control. | Partial | A11y UAT pack still missing |
 | CR-M-04 | `apps/candidate-readiness-web/src/lib/readinessApi.js` | Defaults to demo mode and uses header-based API only when remote | Local adapter | OIDC session, relative deployment routing/proxy, retry/error states, real data ownership controls |
 
 ---
@@ -59,7 +59,7 @@
 
 | Audit ID | File(s) | Current behavior | Classification | Required replacement |
 |---|---|---|---|---|
-| BE-M-01 | `apps/api/src/repositories.mjs` | `MemoryInterviewRepository` is used by the running API; all state resets on restart | In-memory persistence stub | Real MongoDB/Postgres repository, migrations, indexes, encrypted fields, backup, retention/deletion |
+| BE-M-01 | `apps/api/src/repositories.mjs` | **U1:** file-backed store (`data/signalroom-store.json`) is the default; survives restart. Mongo adapter still unwired (no Docker here). | Local durable file | MongoDB when `MONGO_URL` is reachable |
 | BE-M-02 | `apps/api/src/auth.mjs`, `apps/api/src/server.js` | Seeded users and HMAC JWT demo login | Development auth stub | OIDC/SAML/SCIM, verified claims, MFA/passkey, logout/revocation, tenant/group mapping |
 | BE-M-03 | `apps/api/src/platformServices.mjs` | Workflows, rubrics, models, flags, requisitions, jobs, analytics, schemas, policy are in-memory/static | Local control-plane adapter | Durable services/repositories, configuration management, provider integrations |
 | BE-M-04 | `apps/api/src/completionServices.mjs` | Final 50 capabilities return deterministic provider-ready records | Deterministic stub layer | Replace per domain with real provider implementation; delete simulated result after each replacement |
@@ -74,10 +74,10 @@
 
 | Audit ID | File(s) | Current behavior | Required replacement |
 |---|---|---|---|
-| DE-M-01 | `services/event-gateway/src/eventBus.mjs` | `MemoryEventBus` is the active event path; Kafka adapter is interface-only | Kafka cluster/provider, topic ACLs, schema registry, consumer groups, DLQ, replay operations |
-| DE-M-02 | `apps/api/src/platformServices.mjs` | Schema registry is a local `Map`; quality/cdc/lakehouse/catalog output is static | Real schema registry, CDC connector, data catalog, lineage, quality framework |
+| DE-M-01 | `services/event-gateway/src/eventPlane.mjs` | **U6:** memory log always; `KafkaProducerAdapter` + Kafka ApiVersions/Produce when `REDPANDA_BROKER` answers | Cluster ACLs, consumer groups, DLQ ops |
+| DE-M-02 | `eventPlane.mjs` schema registry client | **U6:** registers JSON contracts when SR is up; else local map | Compatibility enforcement, governed catalog |
 | DE-M-03 | `apps/api/src/platformServices.mjs` | Jobs are an in-memory array; replay/deletion/backup are queue-shaped records only | Durable orchestrator/workers, retry policy, DLQ, backfill, legal hold, deletion verification |
-| DE-M-04 | `src/data/foundationData.js`, `DataPulse.jsx` | Topic throughput, lag, quality, retention, lineage visuals are seeded | Live Kafka metrics, stream processor data, lakehouse metadata, governed BI APIs |
+| DE-M-04 | `DataPulse.jsx` | **U6:** live event list + probes; still no Kafka lag histograms | Live Kafka metrics, lakehouse metadata |
 | DE-M-05 | `completionServices.mjs` | CDC, lakehouse, ETL, feature store, backup, semantic metrics return planned/advisory objects | Actual storage, transform, feature-store, backup, warehouse, semantic layer implementation |
 
 ---
@@ -90,7 +90,7 @@
 | AI-M-02 | `services/candidate-coaching-ai/app/main.py` | Deterministic practice questions/feedback/handoff summary | Approved coaching model/RAG adapter, source approval, safety evals, human-review routing |
 | AI-M-03 | `platformServices.mjs` | Follow-up, code evaluation, debrief, model registry use fixed heuristics/static data | Grounded retrieval, sandboxed code execution, durable model registry, reviewer queue |
 | AI-M-04 | `completionServices.mjs` | Interviewer/resume/behavior/sentiment/claim/integrity/language actions are simulated | Real model or deterministic approved policy engine, source evidence, fairness testing, escalation ops |
-| AI-M-05 | `src/data/platformData.js`, `Intelligence.jsx`, `LiveStudio.jsx` | Transcript, copilot, evidence, confidence, integrity, model metrics are seeded | Streaming transcription, real AI outputs, source citations, confidence/evaluation telemetry |
+| AI-M-05 | `Intelligence.jsx`, `LiveStudio.jsx` | **U4:** Copilot is gateway-backed (or labelled fallback). Transcript pane remains seeded until ASR. | Streaming transcription |
 
 ---
 
@@ -98,9 +98,9 @@
 
 | Audit ID | Current behavior | Required replacement |
 |---|---|---|
-| RT-M-01 | Socket.IO authenticates a demo JWT and shares presence/action state | Real identity, durable room state, authorized signaling, provider media lifecycle |
-| RT-M-02 | Live Studio renders CSS people, not real remote/local media streams | SFU SDK, device track lifecycle, TURN, ICE restart, adaptive bitrate, audio-only fallback |
-| RT-M-03 | Screen sharing/whiteboard/AV enhancement are configuration results only | `getDisplayMedia`, whiteboard CRDT, browser capability checks, policy consent, recording control |
+| RT-M-01 | **U3:** Socket.IO handshake uses session JWT; `room.signal` relays WebRTC SDP/ICE (not stored). | Durable room state, LiveKit lifecycle |
+| RT-M-02 | **U3:** Live Studio publishes real local/remote tracks over P2P mesh. Honest “not LiveKit” banner. | SFU SDK, TURN, adaptive bitrate |
+| RT-M-03 | **U3:** `getDisplayMedia` + canvas whiteboard synced on Socket.IO. Blur is CSS. | CRDT whiteboard, recording control |
 | RT-M-04 | Code editor is a textarea; evaluator is heuristic | Monaco/CRDT, isolated sandbox, hidden tests, resource/network controls |
 | RT-M-05 | Device preflight is partially real browser behavior, but network readiness is heuristic | Provider preflight, TURN reachability, end-to-end media diagnostics, support workflow |
 
@@ -110,7 +110,7 @@
 
 | Audit ID | Current behavior | Required replacement |
 |---|---|---|
-| CR-M-05 | Domain service stores jobs, plans, coaches, and handoffs in `Map` objects | Persistent repository, tenant isolation, audit/events, retention/export/deletion |
+| CR-M-05 | **U5:** file-backed Maps (`data/readiness-store.json` / `data/vault-store.json`). | Mongo when `MONGO_URL` is set |
 | CR-M-06 | API trusts development headers for tenant, actor, and role | Signed OIDC claims, RBAC/ABAC, session lifecycle, step-up verification |
 | CR-M-07 | AI coaching is deterministic and lacks authorized retrieval/model evaluation | Model/RAG provider, source approval, evaluation/red-team, review queue |
 | CR-M-08 | Coach matching checks simple specialty/language/timezone overlap | Verified coach directory, availability, conflict engine, booking/calendar, rematch/safety workflows |
@@ -120,16 +120,7 @@
 
 ## 7. Truth-label corrections required
 
-The future agent must not call all items “implemented” merely because `src/data/implementationStatus.js` lists all 100 IDs. It must introduce a truthful state model, for example:
-
-- `mocked`
-- `local_only`
-- `provider_ready`
-- `staging_verified`
-- `production_deployed`
-- `blocked_on_decision`
-
-The Feature Catalog, Control Center, Enterprise Scale page, progress document, and implementation status document must consume the same source of truth.
+**U0 done.** Canonical schema: `src/data/capabilityRegistry.js` (`mocked`, `local_only`, `provider_wired`, `staging_verified`, `production_deployed`, `blocked_on_decision`). Feature Catalog, Control Center, Enterprise Scale, Ready Trust, Vault Trust, `docs/CAPABILITY-REGISTRY.md`, and `progess.md` consume it. No ID is `production_deployed`.
 
 ## 8. Completion order recommendation
 

@@ -142,6 +142,9 @@ def answer_question(request: RagRequest) -> dict:
             "suggestedNextAction": "Add candidate-owned feedback/notes or request human coaching.",
             "confidence": 0.0,
             "modelVersion": MODEL_VERSION,
+            "provider": "deterministic-fallback",
+            "retrieval": "local-keyword",
+            "fallback": True,
             "requiresHumanJudgment": REQUIRES_HUMAN_JUDGMENT,
         }
     top = ranked[0][0]
@@ -156,6 +159,9 @@ def answer_question(request: RagRequest) -> dict:
             "suggestedNextAction": "Capture more candidate-owned evidence or request human coaching.",
             "confidence": 0.2,
             "modelVersion": MODEL_VERSION,
+            "provider": "deterministic-fallback",
+            "retrieval": "local-keyword",
+            "fallback": True,
             "requiresHumanJudgment": REQUIRES_HUMAN_JUDGMENT,
         }
     citations = [_cite(evidence, f"score {score}") for evidence, score in ranked[:3]]
@@ -193,6 +199,9 @@ def create_seven_day_plan(request: RagRequest, target_opportunity_id: str | None
             "suggestedNextAction": "Save a target opportunity and add notes/feedback first.",
             "confidence": 0.0,
             "modelVersion": MODEL_VERSION,
+            "provider": "deterministic-fallback",
+            "retrieval": "local-keyword",
+            "fallback": True,
             "requiresHumanJudgment": REQUIRES_HUMAN_JUDGMENT,
         }
     themes = cluster_feedback_themes(request.evidence)

@@ -64,24 +64,32 @@ function readinessBreakdown(plan, stories, sessions, job, profile) {
   return { total, skillCoverage, evidenceScore, practiceScore, communicationScore, sessionReadiness, label: total >= 80 ? 'ready_to_apply_or_schedule_assessment' : total >= 70 ? 'schedule_mock_and_human_review' : total >= 50 ? 'practice_priority_areas' : 'build_fundamentals_first', skillMatrix };
 }
 
-export function createReadinessService() {
-  const profiles = new Map();
-  const jobs = new Map();
-  const plans = new Map();
-  const coaches = new Map();
-  const handoffs = new Map();
-  const stories = new Map();
-  const sessions = new Map();
-  const opportunities = new Map();
-  const applications = new Map();
-  const campaigns = new Map();
-  const bookings = new Map();
-  const consents = new Map();
-  const audit = [];
+export function createReadinessService({ initial = {}, persist } = {}) {
+  const profiles = new Map(initial.profiles || []);
+  const jobs = new Map(initial.jobs || []);
+  const plans = new Map(initial.plans || []);
+  const coaches = new Map(initial.coaches || []);
+  const handoffs = new Map(initial.handoffs || []);
+  const stories = new Map(initial.stories || []);
+  const sessions = new Map(initial.sessions || []);
+  const opportunities = new Map(initial.opportunities || []);
+  const applications = new Map(initial.applications || []);
+  const campaigns = new Map(initial.campaigns || []);
+  const bookings = new Map(initial.bookings || []);
+  const consents = new Map(initial.consents || []);
+  const audit = [...(initial.audit || [])];
+
+  const save = () => persist?.({
+    profiles: [...profiles], jobs: [...jobs], plans: [...plans], coaches: [...coaches],
+    handoffs: [...handoffs], stories: [...stories], sessions: [...sessions],
+    opportunities: [...opportunities], applications: [...applications], campaigns: [...campaigns],
+    bookings: [...bookings], consents: [...consents], audit,
+  });
 
   const record = (action, entityType, entityId, tenantId, candidateId, metadata = {}) => {
     const entry = { id: id('cr-audit'), action, entityType, entityId, tenantId, candidateId, metadata, at: now() };
     audit.unshift(entry);
+    save();
     return entry;
   };
 
@@ -279,6 +287,26 @@ export function createReadinessService() {
       return plan;
     },
 
+    listJobDescriptions({ tenantId, candidateId }) {
+      return [...jobs.values()].filter((job) => scope(job, tenantId, candidateId));
+    },
+
+    listStories({ tenantId, candidateId }) {
+      return [...stories.values()].filter((story) => scope(story, tenantId, candidateId));
+    },
+
+    listPracticeSessions({ tenantId, candidateId }) {
+      return [...sessions.values()].filter((session) => scope(session, tenantId, candidateId));
+    },
+
+    listCoaches({ tenantId }) {
+      return [...coaches.values()].filter((coach) => coach.tenantId === tenantId);
+    },
+
+    listBookings({ tenantId, candidateId }) {
+      return [...bookings.values()].filter((item) => item.tenantId === tenantId && item.candidateId === candidateId);
+    },
+
     exportCandidateData({ tenantId, candidateId }) {
       return {
         profile: profiles.get(`${tenantId}:${candidateId}`) || null,
@@ -289,6 +317,19 @@ export function createReadinessService() {
         applications: [...applications.values()].filter((application) => application.tenantId === tenantId && application.candidateId === candidateId),
         audit: audit.filter((entry) => entry.tenantId === tenantId && entry.candidateId === candidateId),
       };
+    },
+
+    deleteCandidateData({ tenantId, candidateId }) {
+      const drop = (map) => {
+        for (const [key, value] of map) {
+          if (value.tenantId === tenantId && (value.candidateId === candidateId || key === `${tenantId}:${candidateId}`)) map.delete(key);
+        }
+      };
+      drop(profiles); drop(jobs); drop(plans); drop(stories); drop(sessions);
+      drop(opportunities); drop(applications); drop(campaigns); drop(bookings); drop(handoffs); drop(consents);
+      save();
+      record('data.deletion_requested', 'candidate_data', candidateId, tenantId, candidateId);
+      return { deleted: true, propagated: true };
     },
   };
 }

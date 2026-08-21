@@ -1,28 +1,95 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Icon } from './Icon.jsx';
-import { reliabilityServices } from '../data/platformData.js';
+import { platformApi } from '../lib/platformApi.js';
+import { ErrorNote } from './ErrorNote.jsx';
 
-const objectives = [
-  { label: 'Room join success', objective: '99.9%', actual: '99.92%', progress: 99, tone: 'mint' },
-  { label: 'P95 media latency', objective: '< 120 ms', actual: '84 ms', progress: 78, tone: 'sky' },
-  { label: 'Recording completion', objective: '99.5%', actual: '99.81%', progress: 99, tone: 'mint' },
-  { label: 'Transcript freshness', objective: '< 3 sec', actual: '1.8 sec', progress: 67, tone: 'amber' },
-];
-
-const releases = [
-  { version: 'web-2026.08.20.3', state: 'Canary', detail: '10% of Northstar interviewers · 12 min ago' },
-  { version: 'copilot-v4.2.1', state: 'Healthy', detail: 'Prompt policy set v12 · 52 min ago' },
-  { version: 'events-v1.4', state: 'Stable', detail: 'Schema registry compatible · Yesterday' },
-];
+function toneFor(state) {
+  if (state === 'up' || state === 'on_target') return 'mint';
+  if (state === 'sandbox_mock' || state === 'local_only' || state === 'watch') return 'amber';
+  return 'amber';
+}
 
 export function Operations({ onToast }) {
   const [drillRunning, setDrillRunning] = useState(false);
+  const [error, setError] = useState(null);
+  const [health, setHealth] = useState(null);
+  const [slo, setSlo] = useState([]);
+  const [incidents, setIncidents] = useState([]);
+
+  useEffect(() => {
+    let active = true;
+    Promise.all([platformApi.getOpsHealth(), platformApi.getSlo(), platformApi.getIncidents()]).then(([nextHealth, nextSlo, nextIncidents]) => {
+      if (!active) return;
+      setHealth(nextHealth);
+      setSlo(Array.isArray(nextSlo) ? nextSlo : []);
+      setIncidents(Array.isArray(nextIncidents) ? nextIncidents : []);
+    }).catch((reason) => { if (active) setError(reason); });
+    return () => { active = false; };
+  }, []);
+
+  const providers = health?.providers || [];
+  const process = health?.process || {};
+  const otlp = providers.find((item) => item.id === 'otlp');
+
   return (
     <main className="page operations-page">
-      <section className="ops-header surface-card"><div><span className="pill pill-mint"><span className="pulse-dot" /> 99.98% PLATFORM AVAILABLE</span><h2>Operate with <em>calm, measurable confidence.</em></h2><p>Signals from the application, media edge, event fabric, and AI services resolve into a shared operational picture.</p></div><div className="ops-status-box"><span className="section-kicker">ON-CALL NOW</span><div><span className="oncall-avatar">RK</span><span><b>Rafael Kim</b><small>Media reliability · APAC</small></span><button className="icon-button tiny" onClick={() => onToast('Rafael Kim has been notified through the on-call connector.')} aria-label="Contact on-call"><Icon name="external" size={16} /></button></div></div></section>
-      <section className="slo-grid">{objectives.map((item) => <article className="surface-card slo-card" key={item.label}><div><span>{item.label}</span><span className={`status-chip status-${item.tone}`}>On target</span></div><h2>{item.actual}</h2><p>Objective {item.objective}</p><div className="slo-meter"><span className={`meter-${item.tone}`} style={{ width: `${item.progress}%` }} /></div></article>)}</section>
-      <section className="ops-grid"><article className="surface-card services-card"><div className="surface-header"><div><span className="section-kicker">SERVICE MAP</span><h2>Critical path health</h2></div><button className="text-button" onClick={() => onToast('A live trace explorer would open here in the production connection.')}>Trace explorer <Icon name="arrowUpRight" size={14} /></button></div><div className="service-map">{reliabilityServices.map((service) => <article key={service.name}><span className={`service-health-dot ${service.tone}`} /><div><b>{service.name}</b><small>{service.region}</small></div><span>{service.status}</span><strong>{service.latency}</strong><button className="icon-button tiny" aria-label={`Inspect ${service.name}`}><Icon name="chevronRight" size={16} /></button></article>)}</div><div className="service-chain"><span>Browser RUM</span><i /><span>API gateway</span><i /><span>Media edge</span><i /><span>Event fabric</span><i /><span>AI services</span></div></article><aside className="surface-card resilience-card"><span className="section-kicker">RESILIENCE READINESS</span><h2>Last recovery drill</h2><div className="drill-score"><span>96</span><div><b>Healthy recovery</b><small>Regional media failover · 14 days ago</small></div></div><ul><li><Icon name="check" size={15} /> RTO objective under 8 min</li><li><Icon name="check" size={15} /> Kafka replay validated</li><li><Icon name="check" size={15} /> Recording restore sampled</li></ul><button className="button button-secondary full" disabled={drillRunning} onClick={() => { setDrillRunning(true); onToast('A non-production recovery drill has started. No live interviews are affected.'); setTimeout(() => setDrillRunning(false), 1800); }}><Icon name={drillRunning ? 'refresh' : 'activity'} size={16} /> {drillRunning ? 'Running safe drill…' : 'Start safe drill'}</button></aside></section>
-      <section className="surface-card release-card"><div className="surface-header"><div><span className="section-kicker">PROGRESSIVE DELIVERY</span><h2>What is moving through the platform</h2></div><button className="button button-secondary compact-button" onClick={() => onToast('A feature flag review has been opened for authorized release managers.')}><Icon name="settings" size={15} /> Review flags</button></div><div className="release-list">{releases.map((release) => <div key={release.version}><span className="release-dot" /><code>{release.version}</code><span className={`status-chip ${release.state === 'Canary' ? 'status-violet' : 'status-mint'}`}>{release.state}</span><p>{release.detail}</p><button className="text-button" onClick={() => onToast(`${release.version} has a safe rollback plan and signed build provenance.`)}>Details <Icon name="chevronRight" size={14} /></button></div>)}</div></section>
+      <section className="ops-header surface-card">
+        <div>
+          <span className={`pill pill-${otlp?.ok ? 'mint' : 'amber'}`}><span className="pulse-dot" /> {health ? `${health.eventAdapter} · persistence ${health.persistence}` : 'Loading health…'}</span>
+          <h2>Operate on <em>measured, labelled signals.</em></h2>
+          <p>This process: {process.requests || 0} requests, {process.errors5xx || 0} 5xx. Not a 30-day platform SLO. Failures include a support trace id.</p>
+        </div>
+        <div className="ops-status-box">
+          <span className="section-kicker">ON-CALL</span>
+          <div>
+            <span className="oncall-avatar">—</span>
+            <span><b>No on-call connector</b><small>PagerDuty/status page not wired</small></span>
+          </div>
+        </div>
+      </section>
+      <ErrorNote error={error} />
+
+      <section className="slo-grid">
+        {(slo.length ? slo : [{ name: 'No SLO samples', current: 'n/a', objective: '—', status: 'watch' }]).map((item) => (
+          <article className="surface-card slo-card" key={item.name || item.label}>
+            <div><span>{item.name || item.label}</span><span className={`status-chip status-${toneFor(item.status)}`}>{item.status}</span></div>
+            <h2>{item.current || item.actual}</h2>
+            <p>Objective {item.objective}{item.note ? ` · ${item.note}` : ''}</p>
+          </article>
+        ))}
+      </section>
+
+      <section className="ops-grid">
+        <article className="surface-card services-card">
+          <div className="surface-header">
+            <div><span className="section-kicker">PROVIDER MAP</span><h2>Connected vs mocked</h2></div>
+            <button className="text-button" onClick={() => onToast(otlp?.ok ? `OTLP last success ${otlp.lastSuccess}` : 'Collector down — traces stay in-process.')}>OTLP {otlp?.state || '…'} <Icon name="arrowUpRight" size={14} /></button>
+          </div>
+          <div className="service-map">
+            {providers.map((service) => (
+              <article key={service.id}>
+                <span className={`service-health-dot ${toneFor(service.state)}`} />
+                <div><b>{service.label}</b><small>{service.state}{service.lastError ? ` · ${service.lastError}` : ''}</small></div>
+                <span>{service.ok ? 'reachable' : 'not connected'}</span>
+                <strong>{service.lastSuccess ? String(service.lastSuccess).slice(11, 19) : '—'}</strong>
+              </article>
+            ))}
+          </div>
+        </article>
+        <aside className="surface-card resilience-card">
+          <span className="section-kicker">RESILIENCE</span>
+          <h2>Recovery drill</h2>
+          <div className="drill-score"><span>{incidents.length}</span><div><b>Open incidents</b><small>In-memory records only</small></div></div>
+          <ul>
+            <li><Icon name="check" size={15} /> File store survives API restart</li>
+            <li><Icon name="alert" size={15} /> Kafka replay needs Redpanda</li>
+            <li><Icon name="alert" size={15} /> No volume restore evidence</li>
+          </ul>
+          <button className="button button-secondary full" disabled={drillRunning} onClick={() => { setDrillRunning(true); onToast('Local drill record only. No live interviews affected.'); setTimeout(() => setDrillRunning(false), 1200); }}>
+            <Icon name={drillRunning ? 'refresh' : 'activity'} size={16} /> {drillRunning ? 'Recording…' : 'Start local drill record'}
+          </button>
+        </aside>
+      </section>
     </main>
   );
 }

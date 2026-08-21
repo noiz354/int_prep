@@ -93,15 +93,17 @@ test('AI-13 inclusive-language coach is private, never shared with candidate', (
   assert.equal(clean.finding, 'No prohibited language found in this excerpt');
 });
 
-test('upgraded partials: explainable scoring, grounded follow-up, debrief, model governance', () => {
+test('upgraded partials: explainable scoring, grounded follow-up, debrief, model governance', async () => {
   const { services } = makeHarness();
   const criteria = [{ id: 'a11y', label: 'Accessibility mindset', weight: 20, score: 4, evidence: 'WCAG fixes shipped' }];
   const score = services.explainScore({ criteria, consent });
   assert.equal(score.requiresHumanReview, true);
   assert.ok(score.evidence.length > 0);
-  const followUp = services.groundedFollowUp({ transcript: 'The candidate described an offline network queue.', uncovered: ['Accessibility mindset'], consent });
+  const followUp = await services.groundedFollowUp({ transcript: 'The candidate described an offline network queue.', uncovered: ['Accessibility mindset'], consent });
   assert.ok(followUp.question.length > 10);
   assert.equal(followUp.retrievalSource, 'northstar-rubrics-v6');
+  assert.equal(followUp.requiresHumanJudgment, true);
+  assert.ok(['deterministic-fallback', 'ollama'].includes(followUp.provider));
   const debrief = services.generateDebrief({ interview: { id: 'int-2048', candidateName: 'Alex Morgan' }, criteria, consent });
   assert.equal(debrief.requiresHumanApproval, true);
   assert.equal(debrief.editableDraft, true);
@@ -118,6 +120,15 @@ test('evaluation suite covers grounding, privacy, harmful rejection, and low-con
   assert.ok(ids.includes('eval-harmful-rejection'));
   assert.ok(ids.includes('eval-low-confidence'));
   assert.match(suite.requiresProvider, /blocked on provider decision/);
+});
+
+test('U4 grounded follow-up abstains without context and blocks without consent', async () => {
+  const { services } = makeHarness();
+  const blocked = await services.groundedFollowUp({ transcript: 'plenty of text here', consent: { aiProcessing: false } });
+  assert.equal(blocked.allowed, false);
+  const abstain = await services.groundedFollowUp({ transcript: '', question: '', consent });
+  assert.equal(abstain.abstention, true);
+  assert.equal(abstain.question, null);
 });
 
 test('prompt/model versioning is registered and auditable', () => {

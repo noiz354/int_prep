@@ -205,3 +205,15 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .vault-toggle i { transition: none; }
 }
+.capability-status-card { grid-column: 1 / -1; }
+.capability-status-counts { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 14px; }
+.capability-status-counts span { padding: 6px 8px; border-radius: 8px; background: var(--cv-bg); color: var(--cv-muted); font-size: 12px; }
+.capability-status-counts b { color: var(--cv-text); }
+.capability-status-list { display: grid; max-height: 420px; overflow: auto; }
+.capability-status-list article { display: grid; grid-template-columns: 70px 140px minmax(0,1fr); gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--cv-border); }
+.capability-status-list code { color: var(--cv-accent-2); font-size: 12px; }
+.capability-status-list b { font-size: 13px; }
+.capability-status-list small { color: var(--cv-muted); font-size: 12px; }
+@media (max-width: 900px) {
+  .capability-status-list article { grid-template-columns: 1fr; }
+}

@@ -3,10 +3,14 @@ import express from 'express';
 import { Server as SocketIOServer } from 'socket.io';
 import { z } from 'zod';
 import { featureCatalog } from '../../../src/data/features.js';
-import { createEvent, MemoryEventBus } from '../../../services/event-gateway/src/eventBus.mjs';
-import { loginDemo, requireAuthentication, verifySession } from './auth.mjs';
+import { createEvent } from '../../../services/event-gateway/src/eventBus.mjs';
+import { createEventPlane } from '../../../services/event-gateway/src/eventPlane.mjs';
+import { createProviderHealth } from './providerHealth.mjs';
+import { randomBytes } from 'node:crypto';
+import { attachRevocationStore, demoLoginEnabled, issueForPrincipal, loginDemo, requireAuthentication, revokeSession, verifySession } from './auth.mjs';
+import { exchangeAuthorizationCode, oidcAuthorizationUrl, oidcConfig } from './oidc.mjs';
+import { createPersistence } from './durableStore.mjs';
 import { hasPermission, requirePermission, tenantFor } from './authorization.mjs';
-import { AuditLedger } from './auditLedger.mjs';
 import { calculateScorecard, newInterview, validateScorecard } from './domain.mjs';
 import { northstarOrganization } from './organization.mjs';
 import { createPlatformServices } from './platformServices.mjs';
@@ -16,16 +20,24 @@ import { createMediaServices } from './mediaServices.mjs';
 import { createDataPlatformServices } from './dataPlatformServices.mjs';
 import { createAiServices } from './aiServices.mjs';
 import { createSecurityServices } from './securityServices.mjs';
-import { MemoryInterviewRepository } from './repositories.mjs';
-import { inSpan, recordMediaJoin, recordMediaQuality, recordRequest, recordRoomJoin, recordRoomJoinSignal, requestLogger, startTelemetry, stopTelemetry } from './telemetry.mjs';
+import { inSpan, otlpConfig, recordMediaJoin, recordMediaQuality, recordRequest, recordRoomJoin, recordRoomJoinSignal, requestLogger, requestSnapshot, startTelemetry, stopTelemetry } from './telemetry.mjs';
+import { parseRoomSignal } from './realtimeSignal.mjs';
 
 const app = express();
 const httpServer = createServer(app);
 const port = Number(process.env.PORT || 8787);
 const tenantId = 'northstar';
-const events = new MemoryEventBus();
-const auditLedger = new AuditLedger();
-const responses = new Map();
+const events = createEventPlane();
+const demoSeed = [
+  { id: 'int-2048', tenantId, candidateName: 'Alex Morgan', role: 'Senior Frontend Engineer', stage: 'Technical deep dive', scheduledAt: '2026-08-20T09:30:00+07:00', status: 'live', scorecards: [], consentHistory: [], lifecycle: [{ from: 'checked_in', to: 'live', at: '2026-08-20T02:30:00.000Z' }] },
+  { id: 'int-2051', tenantId, candidateName: 'Nadia Rahman', role: 'Data Platform Manager', stage: 'Leadership conversation', scheduledAt: '2026-08-20T11:00:00+07:00', status: 'scheduled', scorecards: [], consentHistory: [], lifecycle: [{ from: 'draft', to: 'scheduled', at: '2026-08-19T02:30:00.000Z' }] },
+];
+const persistence = createPersistence({
+  seedInterviews: process.env.SIGNALROOM_SEED_DEMO === 'true' ? demoSeed : [],
+});
+attachRevocationStore(persistence);
+const auditLedger = persistence.auditLedger;
+const responses = persistence.idempotency;
 const presenceByRoom = new Map();
 const requestBuckets = new Map();
 const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',').map((value) => value.trim()).filter(Boolean);
@@ -38,25 +50,30 @@ const io = new SocketIOServer(httpServer, {
   connectionStateRecovery: { maxDisconnectionDuration: 120_000, skipMiddlewares: false },
 });
 
-const repository = new MemoryInterviewRepository([
-  { id: 'int-2048', tenantId, candidateName: 'Alex Morgan', role: 'Senior Frontend Engineer', stage: 'Technical deep dive', scheduledAt: '2026-08-20T09:30:00+07:00', status: 'live', scorecards: [], consentHistory: [], lifecycle: [{ from: 'checked_in', to: 'live', at: '2026-08-20T02:30:00.000Z' }] },
-  { id: 'int-2051', tenantId, candidateName: 'Nadia Rahman', role: 'Data Platform Manager', stage: 'Leadership conversation', scheduledAt: '2026-08-20T11:00:00+07:00', status: 'scheduled', scorecards: [], consentHistory: [], lifecycle: [{ from: 'draft', to: 'scheduled', at: '2026-08-19T02:30:00.000Z' }] },
-]);
+const repository = persistence.interviews;
 const platform = createPlatformServices({ events });
 const completion = createCompletionServices({ platform });
-const product = createProductServices({ events, repository, tenantId });
+const product = createProductServices({
+  events,
+  repository,
+  tenantId,
+  initial: persistence.productState,
+  persist: (next) => persistence.saveProduct(next),
+});
 const media = createMediaServices({ events, tenantId });
 const dataPlatform = createDataPlatformServices({ events, tenantId });
 const aiServices = createAiServices({ events, platform, tenantId, ollamaUrl: process.env.OLLAMA_URL });
 const security = createSecurityServices({ events, platform, tenantId });
 
-auditLedger.append({
-  tenantId,
-  actor: { id: 'system', name: 'SignalRoom control plane', roles: ['system'] },
-  action: 'platform.initialized',
-  target: { type: 'tenant', id: tenantId },
-  metadata: { eventContractVersion: '1.0', mode: 'local-vertical-slice' },
-});
+if (auditLedger.snapshot().length === 0) {
+  auditLedger.append({
+    tenantId,
+    actor: { id: 'system', name: 'SignalRoom control plane', roles: ['system'] },
+    action: 'platform.initialized',
+    target: { type: 'tenant', id: tenantId },
+    metadata: { eventContractVersion: '1.0', mode: persistence.mode },
+  });
+}
 
 const consentSchema = z.object({
   recording: z.boolean(),
@@ -65,7 +82,7 @@ const consentSchema = z.object({
   integrityProcessing: z.boolean(),
   legalNoticeVersion: z.string().trim().min(1).max(80),
 });
-const roomJoinSchema = z.object({ interviewId: z.string().regex(/^int-[a-zA-Z0-9-]+$/) });
+const roomJoinSchema = z.object({ interviewId: z.string().regex(/^int-[a-zA-Z0-9-]+$/), invitationToken: z.string().min(8).max(200).optional() });
 const roomActionSchema = z.object({
   interviewId: z.string().regex(/^int-[a-zA-Z0-9-]+$/),
   action: z.enum(['microphone.changed', 'camera.changed', 'screen-share.changed', 'caption.changed']),
@@ -110,7 +127,7 @@ const aiClaimSchema = z.object({ claim: z.string().min(1).max(2_000), knowledgeS
 const aiIntegritySchema = z.object({ signals: z.array(z.object({ type: z.string().max(100), flagged: z.boolean().optional(), severity: z.string().max(50).optional() })).max(50).optional(), consent: consentGateSchema });
 const aiCoachSchema = z.object({ interviewerText: z.string().min(1).max(10_000), consent: consentGateSchema });
 const aiExplainSchema = z.object({ criteria: z.array(z.object({ id: z.string(), label: z.string().optional(), weight: z.number(), score: z.number().optional(), evidence: z.string().optional() })).max(20).optional(), consent: consentGateSchema });
-const aiFollowUpSchema = z.object({ transcript: z.string().max(10_000).optional(), uncovered: z.array(z.string()).max(10).optional(), consent: consentGateSchema });
+const aiFollowUpSchema = z.object({ transcript: z.string().max(10_000).optional(), uncovered: z.array(z.string()).max(10).optional(), question: z.string().max(2_000).optional(), consent: consentGateSchema });
 const aiDebriefSchema = z.object({ criteria: z.array(z.object({ id: z.string(), label: z.string().optional(), weight: z.number(), score: z.number().optional() })).max(20).optional(), consent: consentGateSchema });
 const stepUpSchema = z.object({ purpose: z.string().max(100).optional(), userId: z.string().min(1).max(100), methods: z.array(z.enum(['passkey', 'totp', 'sms', 'email'])).max(4).optional() });
 const stepUpVerifySchema = z.object({ challengeId: z.string().min(1).max(100), method: z.string().min(1).max(20), verified: z.boolean().optional() });
@@ -135,6 +152,16 @@ app.use((req, res, next) => {
   next();
 });
 app.use(requestLogger());
+app.use((req, res, next) => {
+  const originalJson = res.json.bind(res);
+  res.json = (body) => {
+    if (body && typeof body === 'object' && !Array.isArray(body) && body.error && !body.traceId) {
+      return originalJson({ ...body, requestId: req.id, traceId: req.traceId || req.id });
+    }
+    return originalJson(body);
+  };
+  next();
+});
 
 function requestTenant(req) {
   return tenantFor(req.principal, req.get('x-tenant-id'));
@@ -182,17 +209,107 @@ function removeSocketPresence(socket) {
 }
 
 // Public bootstrap endpoints. Swap the demo login for an OIDC/SAML callback adapter in production.
-app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', service: 'interview-api', eventAdapter: 'memory', authentication: 'jwt-demo-adapter', time: new Date().toISOString() });
+app.get('/api/health', async (_req, res) => {
+  const plane = await events.probe();
+  res.json({
+    status: 'ok',
+    service: 'interview-api',
+    eventAdapter: plane.adapter,
+    persistence: persistence.mode,
+    otlp: otlpConfig(),
+    authentication: { demoLogin: demoLoginEnabled(), oidc: oidcConfig().enabled },
+    time: new Date().toISOString(),
+  });
+});
+
+app.get('/api/auth/methods', (_req, res) => {
+  res.json({ data: { demoLogin: demoLoginEnabled(), oidc: oidcConfig(), persistence: persistence.mode } });
+});
+
+function publicRateLimit(req, res, next) {
+  const bucketKey = `public:${req.ip || 'unknown'}`;
+  const windowMs = 60_000;
+  const limit = 40;
+  const current = requestBuckets.get(bucketKey) || { startedAt: Date.now(), count: 0 };
+  const withinWindow = Date.now() - current.startedAt < windowMs;
+  const bucket = withinWindow ? current : { startedAt: Date.now(), count: 0 };
+  bucket.count += 1;
+  requestBuckets.set(bucketKey, bucket);
+  if (bucket.count > limit) return res.status(429).json({ error: 'Rate limit exceeded. Retry shortly.' });
+  return next();
+}
+
+app.get('/api/public/invitations', publicRateLimit, async (req, res) => {
+  const token = String(req.query.token || '');
+  if (!token) return res.status(422).json({ error: 'token query parameter is required' });
+  const preview = await product.publicInvitationPreview(token);
+  if (!preview.valid) return res.status(200).json({ data: { valid: false, reason: preview.reason } });
+  return res.json({
+    data: {
+      valid: true,
+      invitation: preview.invitation,
+      interview: preview.interview,
+    },
+  });
+});
+
+app.post('/api/public/invitations/consent', publicRateLimit, async (req, res) => {
+  const token = String(req.body?.token || '');
+  const parsed = consentSchema.safeParse({
+    recording: req.body?.recording,
+    transcription: req.body?.transcription,
+    aiProcessing: req.body?.aiProcessing,
+    integrityProcessing: req.body?.integrityProcessing,
+    legalNoticeVersion: req.body?.legalNoticeVersion,
+  });
+  if (!token) return res.status(422).json({ error: 'token is required' });
+  if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0].message });
+  const recorded = await product.recordConsentForInvitation(token, parsed.data);
+  if (!recorded.valid) return res.status(404).json({ error: 'Invitation is invalid or expired', reason: recorded.reason });
+  auditLedger.append({
+    tenantId: recorded.tenantId,
+    actor: { id: recorded.consent.subjectId, name: 'Invitation holder', roles: ['candidate'] },
+    action: 'consent.recorded',
+    target: { type: 'interview', id: recorded.interviewId },
+    metadata: { consentId: recorded.consent.id, invitationId: recorded.consent.invitationId, recording: recorded.consent.recording, transcription: recorded.consent.transcription },
+  });
+  return res.status(201).json({ data: recorded.consent });
 });
 
 app.post('/api/auth/demo-login', async (req, res) => {
   try {
     const session = await loginDemo(req.body);
+    if (session?.disabled) return res.status(403).json({ error: 'Demo login is disabled. Use OIDC or set ALLOW_DEMO_LOGIN=true.' });
     if (!session) return res.status(401).json({ error: 'Unknown demo identity' });
+    auditLedger.append({ tenantId: session.principal.tenantId, actor: session.principal, action: 'auth.demo-login', target: { type: 'user', id: session.principal.id }, metadata: { labelled: true } });
     return res.json({ data: session });
   } catch (error) {
     return res.status(422).json({ error: error.issues?.[0]?.message || 'Invalid login request' });
+  }
+});
+
+app.get('/api/auth/oidc/start', (req, res) => {
+  try {
+    const state = randomBytes(16).toString('hex');
+    const redirectUri = process.env.OIDC_REDIRECT_URI || String(req.query.redirect_uri || '');
+    const authorizationUrl = oidcAuthorizationUrl({ state, redirectUri: redirectUri || undefined });
+    return res.json({ data: { authorizationUrl, state, provider: 'oidc' } });
+  } catch (error) {
+    return res.status(503).json({ error: error.message, code: error.code || 'oidc_unconfigured' });
+  }
+});
+
+app.post('/api/auth/oidc/callback', async (req, res) => {
+  try {
+    const code = req.body?.code;
+    if (!code) return res.status(422).json({ error: 'authorization code is required' });
+    const exchanged = await exchangeAuthorizationCode({ code, redirectUri: req.body?.redirect_uri || process.env.OIDC_REDIRECT_URI });
+    const session = await issueForPrincipal(exchanged.principal);
+    auditLedger.append({ tenantId: session.principal.tenantId, actor: session.principal, action: 'auth.oidc-login', target: { type: 'user', id: session.principal.id }, metadata: { idp: 'oidc' } });
+    return res.json({ data: session });
+  } catch (error) {
+    const status = error.code === 'oidc_unconfigured' ? 503 : 401;
+    return res.status(status).json({ error: error.message, code: error.code });
   }
 });
 
@@ -201,8 +318,16 @@ app.use('/api', principalRateLimit);
 
 app.get('/api/auth/session', (req, res) => res.json({ data: req.principal }));
 
+app.post('/api/auth/logout', (req, res) => {
+  revokeSession(req.principal.jti);
+  auditLedger.append({ tenantId: req.principal.tenantId, actor: req.principal, action: 'auth.logout', target: { type: 'user', id: req.principal.id }, metadata: { jti: req.principal.jti } });
+  return res.json({ data: { revoked: true } });
+});
+
 app.get('/api/organization/current', requirePermission('organization:read'), (req, res) => {
-  res.json({ data: northstarOrganization });
+  const tenant = requestTenant(req);
+  const org = persistence.listOrganizations(tenant)[0] || northstarOrganization;
+  res.json({ data: org });
 });
 
 app.get('/api/features', requirePermission('feature:read'), (_req, res) => {
@@ -296,6 +421,9 @@ app.post('/api/ai/code-evaluation', requirePermission('ai:use'), idempotent, (re
   const response = { data: evaluation }; responses.set(res.locals.idempotencyKey, response); return res.status(201).json(response);
 });
 
+app.get('/api/ai/status', requirePermission('ai:use'), async (_req, res) => {
+  return res.json({ data: await aiServices.providerStatus() });
+});
 app.get('/api/ai/models', requirePermission('ai:use'), (_req, res) => res.json({ data: platform.modelRegistry() }));
 app.post('/api/ai/models/:id/stage', requirePermission('workflow:write'), idempotent, (req, res) => {
   try {
@@ -360,7 +488,26 @@ app.post('/api/feature-flags/:id', requirePermission('featureflag:write'), idemp
   } catch (error) { return res.status(404).json({ error: error.message }); }
 });
 
-app.get('/api/operations/slo', requirePermission('operations:read'), (_req, res) => res.json({ data: platform.slo() }));
+app.get('/api/ops/health', requirePermission('operations:read'), async (_req, res) => {
+  const snap = await providerHealth.snapshot();
+  return res.json({ data: { ...snap, process: requestSnapshot() } });
+});
+app.get('/api/integrations', requirePermission('operations:read'), async (_req, res) => {
+  const snap = await providerHealth.snapshot();
+  return res.json({ data: snap.integrations });
+});
+app.get('/api/operations/slo', requirePermission('operations:read'), (_req, res) => {
+  const stats = requestSnapshot();
+  const sample = stats.requests;
+  const availability = sample ? `${(((sample - stats.errors5xx) / sample) * 100).toFixed(2)}% this process` : 'n/a — no samples yet';
+  return res.json({
+    data: [
+      { name: 'API requests this process', objective: 'no silent 5xx', current: availability, status: stats.errors5xx ? 'watch' : 'on_target', owner: 'Platform', note: 'Not a 30-day SLO. Process-local counters only.' },
+      { name: 'Event bus', objective: 'durable when Redpanda is up', current: events.kafkaLite?.last()?.ok ? 'memory+redpanda' : 'memory', status: 'local_only', owner: 'Data Platform' },
+      { name: 'Room join success', objective: '99.9%', current: 'n/a', status: 'blocked', owner: 'Media SRE', note: 'Needs SFU/LiveKit samples.' },
+    ],
+  });
+});
 app.get('/api/operations/incidents', requirePermission('operations:read'), (_req, res) => res.json({ data: platform.incidents() }));
 app.post('/api/operations/incidents', requirePermission('operations:write'), idempotent, (req, res) => {
   const parsed = incidentSchema.safeParse(req.body);
@@ -973,7 +1120,9 @@ io.on('connection', (socket) => {
 
   socket.on('room.join', async (rawInput, acknowledge = () => {}) => {
     const parsed = roomJoinSchema.safeParse(rawInput);
-    if (!parsed.success || !hasPermission(principal, 'interview:room:join', { interviewId: rawInput?.interviewId })) {
+    const staffJoin = parsed.success && hasPermission(principal, 'interview:room:join', { interviewId: parsed.data.interviewId });
+    const inviteJoin = parsed.success && parsed.data.invitationToken && product.invitationAllows({ token: parsed.data.invitationToken, interviewId: parsed.data.interviewId });
+    if (!parsed.success || (!staffJoin && !inviteJoin)) {
       return acknowledge({ ok: false, error: 'Room access denied' });
     }
     const interview = await repository.findById(parsed.data.interviewId, principal.tenantId);
@@ -995,24 +1144,39 @@ io.on('connection', (socket) => {
 
   socket.on('room.action', (rawInput, acknowledge = () => {}) => {
     const parsed = roomActionSchema.safeParse(rawInput);
-    if (!parsed.success || !hasPermission(principal, 'interview:room:join', { interviewId: rawInput?.interviewId })) {
+    const room = parsed.success ? `interview:${parsed.data.interviewId}` : null;
+    if (!parsed.success || !socket.data.joinedRooms?.includes(room)) {
       return acknowledge({ ok: false, error: 'Room action denied' });
     }
-    const room = `interview:${parsed.data.interviewId}`;
     socket.to(room).emit('room.action', { userId: principal.id, name: principal.name, ...parsed.data });
+    return acknowledge({ ok: true });
+  });
+
+  socket.on('room.signal', (rawInput, acknowledge = () => {}) => {
+    const parsed = parseRoomSignal(rawInput);
+    if (!parsed.ok) return acknowledge({ ok: false, error: parsed.error });
+    const room = `interview:${parsed.data.interviewId}`;
+    if (!socket.data.joinedRooms?.includes(room)) return acknowledge({ ok: false, error: 'Not in room' });
+    socket.to(room).emit('room.signal', {
+      userId: principal.id,
+      name: principal.name,
+      kind: parsed.data.kind,
+      payload: { ...(parsed.data.payload || {}), from: principal.id },
+    });
     return acknowledge({ ok: true });
   });
 
   socket.on('disconnect', () => removeSocketPresence(socket));
 });
 
-app.use((error, _req, res, _next) => {
+app.use((error, req, res, _next) => {
   console.error(error);
-  res.status(500).json({ error: 'Unexpected control-plane error' });
+  res.status(500).json({ error: 'Unexpected control-plane error', requestId: req.id, traceId: req.traceId || req.id });
 });
 
 async function start() {
   await startTelemetry();
+  events.probe().catch(() => {});
   httpServer.listen(port, '0.0.0.0', () => console.log(`Interview API listening on http://0.0.0.0:${port}`));
 }
 

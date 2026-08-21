@@ -1,5 +1,56 @@
 # Implementation Status — 100-Feature PRD
 
+## Phase U0 — truthful capability registry
+
+A single schema in `src/data/capabilityRegistry.js` is the source of truth for Feature Catalog, Control Center, Enterprise Scale, Ready, and Vault. States:
+
+`mocked` · `local_only` · `provider_wired` · `staging_verified` · `production_deployed` · `blocked_on_decision`
+
+| Product | Total | mocked | local_only | provider_wired | staging_verified | production_deployed | blocked_on_decision |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Interview PRD | 100 | 8 | 92 | 0 | 0 | 0 | 0 |
+| Ready CR-01…48 | 48 | 18 | 26 | 0 | 0 | 0 | 4 |
+| Vault CV-01…20 | 20 | 1 | 17 | 0 | 0 | 0 | 2 |
+
+**User-usable count: 0.** Human boot path: `npm run start:usable` and `docs/USER-RUNBOOK.md`. UAT: `docs/UAT-EVIDENCE.md`.
+
+## Phase U7 — launch bar
+
+One command boots interview + Ready + Vault. README states which journeys work, which are mocked, and which are blocked. Remaining UAT P0 that can run self-hosted is recorded; Gmail/payments/SFU stay `blocked_on_decision`. Companion web builds were verified locally (`candidate:readiness:web:build`, `career:vault:web:build`, `rtc:interview:web:build`). Updating `.github/workflows/ci.yml` needs GitHub `workflows` permission. Threat model and honest limitations are unchanged in spirit. **No ID moved to `staging_verified`.**
+
+## Phase U1 — identity + persistence + session
+
+Docker was unavailable, so U1 wired a **file-backed durable store** and an **OIDC adapter** rather than live Keycloak/Mongo.
+
+| Item | Result |
+|---|---|
+| Auto demo-login | Removed. `LoginGate` + labelled demo buttons (`ALLOW_DEMO_LOGIN`) |
+| OIDC | `/api/auth/oidc/start` + `/callback`; 503 until `KEYCLOAK_URL` + `OIDC_CLIENT_ID` |
+| Logout | `POST /api/auth/logout` revokes JWT `jti` |
+| Persistence | `data/signalroom-store.json` — interviews, audit, idempotency, orgs, revoked tokens |
+| Dashboard | API mode shows the signed-in principal and **their** interviews (empty by default) |
+| Ready / Vault APIs | Bearer JWT first; development headers only if `ALLOW_DEV_HEADERS` is not `false` |
+
+## Phase U2 — recruiter product uses the API
+
+When `VITE_USE_API=true`, Dashboard and Interviews no longer treat `platformData.js` as the source of truth. Creating an interview writes the durable store, optional schedule + invitation, and the list reloads. Control Center lifecycle/artifact actions target the selected live interview. Calendar/email remain labelled adapters.
+
+## Phase U6 — data plane / ops honesty
+
+Data Pulse, Trust, Operations, and Integrations read `/api/ops/health`, events, audit, and integrations. `KafkaProducerAdapter` produces only when Redpanda answers; schema registry registers JSON contracts when up. OTLP HTTP exporter is configured when `OTLP_ENDPOINT` is set. Failures include `x-trace-id`. WireMock is labelled **sandbox mock**. Nothing is `provider_wired`.
+
+## Phase U5 — Ready + Vault as products
+
+`demo.js` is no longer the source of truth when `VITE_USE_API=true`. Ready (5193/8790) and Vault (5191/8792) persist to `data/readiness-store.json` and `data/vault-store.json`. Sign-in uses the main demo JWT (Alex). live_assessment is rejected at domain + API + UI. Gmail/calendar OAuth and payments stay `blocked_on_decision`. Evidence: `docs/UAT-EVIDENCE.md`.
+
+## Phase U4 — assistive AI a person can ask
+
+Intelligence and Live Studio copilot call `POST /api/ai/follow-up-grounded` after explicit consent. The gateway probes Ollama/Qdrant; if they are down the response is a **labelled** deterministic fallback (`provider`, `modelVersion`, `fallback`). Abstention when evidence is thin. Audit stores provider/model/input hash, not raw transcripts. Career Vault RAG and Ready coaching add the same provider labels. Nothing is `provider_wired` until Ollama is actually up.
+
+## Phase U3 — candidate portal + joinable media
+
+Candidate Portal reads `/?invite=` and the public invitation API (interview record + consent, no recruiter JWT). Live Studio and the RTC app join the same Socket.IO room and negotiate **browser peer-to-peer WebRTC**. Screen share uses `getDisplayMedia`. Tracks stop on leave. Banner states LiveKit is **not** connected. Copilot/transcript remain seeded (U4).
+
 ## Candidate Readiness & Coaching — separate bounded context
 
 The candidate-owned preparation product ("SignalRoom Ready") is scaffolded as its own

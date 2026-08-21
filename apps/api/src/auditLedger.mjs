@@ -15,6 +15,15 @@ function hash(value) {
 export class AuditLedger {
   #entries = [];
   #lastHashByTenant = new Map();
+  #persist;
+
+  constructor({ entries = [], persist } = {}) {
+    this.#persist = persist;
+    for (const entry of entries) {
+      this.#entries.push(Object.freeze(entry));
+      this.#lastHashByTenant.set(entry.tenantId, entry.hash);
+    }
+  }
 
   append({ tenantId, actor, action, target, metadata = {}, occurredAt = new Date().toISOString() }) {
     const previousHash = this.#lastHashByTenant.get(tenantId) || 'GENESIS';
@@ -31,11 +40,16 @@ export class AuditLedger {
     entry.hash = hash(`${previousHash}:${canonicalize(entry)}`);
     this.#entries.push(Object.freeze(entry));
     this.#lastHashByTenant.set(tenantId, entry.hash);
+    this.#persist?.();
     return entry;
   }
 
   list({ tenantId, limit = 50 } = {}) {
     return this.#entries.filter((entry) => !tenantId || entry.tenantId === tenantId).slice(-limit).reverse();
+  }
+
+  snapshot() {
+    return this.#entries.map((entry) => ({ ...entry }));
   }
 
   verify({ tenantId } = {}) {

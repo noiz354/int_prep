@@ -1,0 +1,47 @@
+# Capability registry — truthful status
+
+> **Source of truth (code):** `src/data/capabilityRegistry.js`  
+> **Consumed by:** Feature Catalog, Control Center, Enterprise Scale, Ready Trust screen, Vault Trust screen, `progess.md`, contract tests.  
+> **Phase:** U7 launch bar. No provider is `provider_wired`. Nothing is `staging_verified` or `production_deployed`.
+
+## State model
+
+| State | Meaning | User can complete the job? |
+|---|---|---|
+| `mocked` | Seeded or simulated UI | No |
+| `local_only` | In-process contract / browser behavior | Only inside this process, demo identity |
+| `provider_wired` | Default path talks to a running provider | Yes, locally or managed |
+| `staging_verified` | UAT P0 against that provider | Yes, in staging |
+| `production_deployed` | Live for real users | Yes |
+| `blocked_on_decision` | Needs org/provider choice before a useful path exists | No |
+
+Almost every row also has `productionGate: blocked_on_decision` until credentials, DPA/self-host ownership, and UAT exist. That gate is **not** the same as the user-visible `state`.
+
+## Counts (after U7)
+
+| Product | Total | mocked | local_only | provider_wired | staging_verified | production_deployed | blocked_on_decision |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Interview (PRD) | 100 | 8 | 92 | 0 | 0 | 0 | 0 |
+| Ready (CR-01…48) | 48 | 18 | 26 | 0 | 0 | 0 | 4 |
+| Vault (CV-01…20) | 20 | 1 | 17 | 0 | 0 | 0 | 2 |
+| **All** | **168** | **27** | **135** | **0** | **0** | **0** | **6** |
+
+User-usable (`provider_wired` + `staging_verified` + `production_deployed`): **0**.
+
+## Interview mocked (8)
+
+FE-05, FE-06, DO-01, DO-02, DO-03, DO-09, DO-10, EO-09.
+
+U6 moved EO-05/06/07 (ATS/HRIS/comms cards) from mocked → local_only: UI says sandbox mock / not connected, never “Connected to Greenhouse”.
+
+## Ready blocked (4)
+
+CR-21 coding sandbox, CR-29 payments, CR-30 preparation SFU, CR-48 program integrations.
+
+## Vault blocked (2)
+
+CV-05 Gmail OAuth, CV-07 calendar OAuth.
+
+## How to reclassify
+
+A later phase may move a row only when the Definition of Done in `PROMPT-USER-USABLE-PRODUCTION.md` is met. Updating this markdown without the JS registry is a defect.

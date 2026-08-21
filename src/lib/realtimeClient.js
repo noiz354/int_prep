@@ -1,10 +1,11 @@
 import { io } from 'socket.io-client';
-import { getDemoSession, isRemoteApiEnabled } from './session.js';
+import { getSession, isRemoteApiEnabled } from './session.js';
 
 /** Uses a relative path so the browser never needs a localhost URL. */
-export async function connectInterviewRoom(interviewId, handlers = {}) {
-  if (!isRemoteApiEnabled()) return { mode: 'local', disconnect: () => {}, sendAction: () => {} };
-  const session = await getDemoSession();
+export async function connectInterviewRoom(interviewId, handlers = {}, { invitationToken } = {}) {
+  if (!isRemoteApiEnabled()) return { mode: 'local', disconnect: () => {}, sendAction: () => {}, sendSignal: () => {} };
+  const session = getSession();
+  if (!session?.accessToken) return { mode: 'local', disconnect: () => {}, sendAction: () => {}, sendSignal: () => {} };
   const socket = io({
     path: '/socket.io',
     auth: { token: session.accessToken },
@@ -15,19 +16,22 @@ export async function connectInterviewRoom(interviewId, handlers = {}) {
 
   socket.on('connect', () => {
     handlers.onStatus?.({ state: 'connected', label: 'Realtime room connected' });
-    socket.emit('room.join', { interviewId }, (result) => {
+    socket.emit('room.join', { interviewId, invitationToken }, (result) => {
       if (result?.ok) handlers.onPresence?.(result.participants);
       else handlers.onStatus?.({ state: 'error', label: result?.error || 'Room join failed' });
     });
   });
   socket.on('presence.updated', ({ participants }) => handlers.onPresence?.(participants));
   socket.on('room.action', (event) => handlers.onRoomAction?.(event));
+  socket.on('room.signal', (event) => handlers.onSignal?.(event));
   socket.on('disconnect', () => handlers.onStatus?.({ state: 'disconnected', label: 'Realtime room reconnecting' }));
   socket.on('connect_error', () => handlers.onStatus?.({ state: 'error', label: 'Realtime fallback active' }));
 
   return {
     mode: 'remote',
+    selfId: session.principal?.id,
     disconnect: () => socket.disconnect(),
     sendAction: (action, value) => socket.emit('room.action', { interviewId, action, value }),
+    sendSignal: (kind, payload) => socket.emit('room.signal', { interviewId, kind, payload }),
   };
 }

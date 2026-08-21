@@ -9,6 +9,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { createEvent } from '../../../services/event-gateway/src/eventBus.mjs';
+import { createModelGateway, inputSignature } from './modelGateway.mjs';
 
 const now = () => new Date().toISOString();
 const uuid = () => randomUUID().slice(0, 8);
@@ -19,13 +20,14 @@ const CONSENT_GATES = {
   integrityProcessing: 'consent_for_integrity_processing',
 };
 
-export function createAiServices({ events, platform, tenantId = 'northstar', ollamaUrl = null }) {
+export function createAiServices({ events, platform, tenantId = 'northstar', ollamaUrl = null, gateway } = {}) {
   const interviews = [];
   const evaluations = [];
   const integrityReviews = [];
   const appeals = [];
   const promptVersions = new Map();
   const modelRuns = [];
+  const models = gateway || createModelGateway({ ollamaUrl });
 
   function publish(type, payload) {
     if (!events) return;
@@ -181,11 +183,58 @@ export function createAiServices({ events, platform, tenantId = 'northstar', oll
     return { ...explanation, modelVersion: 'signal-reasoner-4.2', promptVersion: 'interview-copilot-v12', requiresHumanReview: true };
   }
 
-  function groundedFollowUp({ transcript = '', uncovered = [], consent }) {
+  async function groundedFollowUp({ transcript = '', uncovered = [], question = '', consent }) {
     const gate = requireConsent(consent, 'aiProcessing');
     if (!gate.allowed) return { ...gate, requiresHumanReview: true };
-    const suggestion = platform?.suggestFollowUp ? platform.suggestFollowUp({ transcript, uncovered }) : { question: '', competency: '', confidence: 0 };
-    return { ...suggestion, retrievalSource: 'northstar-rubrics-v6', requiresHumanReview: true };
+    const excerpt = String(transcript || question || '').trim();
+    if (excerpt.length < 8) {
+      return {
+        allowed: true,
+        abstention: true,
+        reason: 'insufficient_permitted_evidence',
+        question: null,
+        message: 'There is not enough approved transcript or rubric context to ground a follow-up. Ask a human interviewer to continue.',
+        citations: [],
+        provider: 'policy',
+        modelVersion: 'abstain',
+        fallback: false,
+        requiresHumanReview: true,
+        requiresHumanJudgment: true,
+      };
+    }
+    const suggestion = platform?.suggestFollowUp
+      ? platform.suggestFollowUp({ transcript: excerpt, uncovered })
+      : { question: '', competency: '', confidence: 0 };
+    const generated = await models.complete({
+      prompt: `You are an assistive interview copilot. Ground a single neutral follow-up in the approved rubric. Never hire/reject. Never infer protected traits.\nUncovered: ${(uncovered || []).join(', ') || 'none'}\nContext: ${excerpt.slice(0, 1200)}\nReturn only the question.`,
+      fallbackText: suggestion.question,
+    });
+    const run = recordRun({
+      featureId: 'AI-03',
+      modelVersion: generated.model,
+      promptVersion: 'interview-copilot-v12',
+      purpose: 'grounded-follow-up',
+      inputSignature: inputSignature(excerpt),
+    });
+    publish('ai.copilot.followup.created', { runId: run.id, provider: generated.provider, fallback: generated.fallback });
+    return {
+      ...suggestion,
+      question: generated.text,
+      abstention: false,
+      retrievalSource: 'northstar-rubrics-v6',
+      citations: suggestion.evidence || ['approved rubric'],
+      provider: generated.provider,
+      modelVersion: generated.model,
+      fallback: generated.fallback,
+      fallbackReason: generated.reason,
+      inputSignature: run.inputSignature,
+      requiresHumanReview: true,
+      requiresHumanJudgment: true,
+    };
+  }
+
+  async function providerStatus() {
+    return models.status();
   }
 
   function modelGovernanceSnapshot() {
@@ -236,5 +285,6 @@ export function createAiServices({ events, platform, tenantId = 'northstar', oll
     registerPromptVersion,
     evaluationSuite,
     recordRun,
+    providerStatus,
   };
 }

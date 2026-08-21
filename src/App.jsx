@@ -16,6 +16,9 @@ import { FeatureCatalog } from './components/FeatureCatalog.jsx';
 import { Icon } from './components/Icon.jsx';
 import { platformApi } from './lib/platformApi.js';
 import { clientEventBus } from './lib/eventBus.js';
+import { LoginGate } from './components/LoginGate.jsx';
+import { getSession, isRemoteApiEnabled, logoutSession } from './lib/session.js';
+import { localDateTimeToIso, localDateTimeValue } from './lib/interviewView.js';
 
 const commandItems = [
   { id: 'overview', label: 'Go to overview', icon: 'grid', group: 'Navigate' },
@@ -49,8 +52,22 @@ function CommandPalette({ open, onClose, onNavigate, onCreate }) {
 
 function InterviewComposer({ open, onClose, onComplete }) {
   const [stage, setStage] = useState('Technical deep dive');
+  const [candidateName, setCandidateName] = useState('New candidate');
+  const [role, setRole] = useState('Senior Frontend Engineer');
+  const [when, setWhen] = useState(localDateTimeValue());
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [busy, setBusy] = useState(false);
   if (!open) return null;
-  return <div className="modal-layer" role="presentation" onMouseDown={onClose}><div className="composer-modal" role="dialog" aria-modal="true" aria-labelledby="composer-title" onMouseDown={(event) => event.stopPropagation()}><div className="modal-heading"><div><span className="section-kicker">NEW INTERVIEW</span><h2 id="composer-title">Create a structured session</h2></div><button className="icon-button" onClick={onClose} aria-label="Close interview composer"><Icon name="x" size={20} /></button></div><div className="composer-steps"><span className="is-current">1<span>Details</span></span><i /><span>2<span>Panel</span></span><i /><span>3<span>Review</span></span></div><label className="form-field"><span>Candidate</span><input defaultValue="New candidate" aria-label="Candidate name" /></label><label className="form-field"><span>Role</span><input defaultValue="Senior Frontend Engineer" aria-label="Role" /></label><label className="form-field"><span>Interview stage</span><select value={stage} onChange={(event) => setStage(event.target.value)} aria-label="Interview stage"><option>Technical deep dive</option><option>Systems design</option><option>Leadership conversation</option><option>Portfolio review</option></select></label><div className="composer-notice"><Icon name="sparkles" size={16} /><span>An approved rubric and privacy notice will be attached automatically based on the selected role.</span></div><div className="modal-actions"><button className="button button-secondary" onClick={onClose}>Cancel</button><button className="button button-primary" onClick={() => { onComplete(stage); onClose(); }}><Icon name="calendar" size={17} /> Continue to panel</button></div></div></div>;
+  const submit = async () => {
+    setBusy(true);
+    try {
+      await onComplete({ candidateName, role, stage, scheduledAt: localDateTimeToIso(when), inviteEmail });
+      onClose();
+    } finally {
+      setBusy(false);
+    }
+  };
+  return <div className="modal-layer" role="presentation" onMouseDown={onClose}><div className="composer-modal" role="dialog" aria-modal="true" aria-labelledby="composer-title" onMouseDown={(event) => event.stopPropagation()}><div className="modal-heading"><div><span className="section-kicker">NEW INTERVIEW</span><h2 id="composer-title">Create a structured session</h2></div><button className="icon-button" onClick={onClose} aria-label="Close interview composer"><Icon name="x" size={20} /></button></div><label className="form-field"><span>Candidate</span><input value={candidateName} onChange={(event) => setCandidateName(event.target.value)} aria-label="Candidate name" /></label><label className="form-field"><span>Role</span><input value={role} onChange={(event) => setRole(event.target.value)} aria-label="Role" /></label><label className="form-field"><span>Interview stage</span><select value={stage} onChange={(event) => setStage(event.target.value)} aria-label="Interview stage"><option>Technical deep dive</option><option>Systems design</option><option>Leadership conversation</option><option>Portfolio review</option></select></label><label className="form-field"><span>Start</span><input type="datetime-local" value={when} onChange={(event) => setWhen(event.target.value)} aria-label="Interview start" /></label><label className="form-field"><span>Invitation email (optional)</span><input type="email" value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} placeholder="candidate@example.test" aria-label="Invitation email" /></label><div className="composer-notice"><Icon name="sparkles" size={16} /><span>This writes your tenant store. Email delivery remains a labelled adapter until a mail provider is wired.</span></div><div className="modal-actions"><button className="button button-secondary" onClick={onClose}>Cancel</button><button className="button button-primary" disabled={busy} onClick={submit}><Icon name="calendar" size={17} /> {busy ? 'Saving…' : 'Create & persist'}</button></div></div></div>;
 }
 
 export default function App() {
@@ -60,6 +77,11 @@ export default function App() {
   const [commandOpen, setCommandOpen] = useState(false);
   const [composerOpen, setComposerOpen] = useState(false);
   const [toast, setToast] = useState('');
+  const [session, setSession] = useState(() => getSession());
+  const [interviewTick, setInterviewTick] = useState(0);
+  const [inviteToken, setInviteToken] = useState('');
+  const [activeInterviewId, setActiveInterviewId] = useState('');
+  const [interviewLabel, setInterviewLabel] = useState('');
 
   const notify = (message) => {
     setToast(message);
@@ -71,6 +93,17 @@ export default function App() {
     document.documentElement.dataset.theme = darkMode ? 'dark' : 'light';
     localStorage.setItem('signalroom:theme', darkMode ? 'dark' : 'light');
   }, [darkMode]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const invite = params.get('invite');
+    const interview = params.get('interview');
+    if (invite) {
+      setInviteToken(invite);
+      setActiveScreen('candidate');
+    }
+    if (interview) setActiveInterviewId(interview);
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (event) => {
@@ -85,13 +118,50 @@ export default function App() {
   }, []);
 
   const navigate = (screen) => { setActiveScreen(screen); setMenuOpen(false); window.scrollTo({ top: 0, behavior: 'smooth' }); };
-  const saveScorecard = (scorecard) => platformApi.saveScorecard('int-2048', scorecard);
+  const saveScorecard = (interviewId, scorecard) => platformApi.saveScorecard(interviewId || activeInterviewId || 'int-2048', scorecard);
+  const openRoom = ({ interviewId, invitationToken, label } = {}) => {
+    if (interviewId) setActiveInterviewId(interviewId);
+    if (invitationToken) setInviteToken(invitationToken);
+    if (label) setInterviewLabel(label);
+    navigate('studio');
+  };
+  const persistInterview = async (draft) => {
+    try {
+      const created = await platformApi.createInterview({
+        candidateName: draft.candidateName,
+        role: draft.role,
+        stage: draft.stage,
+        scheduledAt: draft.scheduledAt,
+      });
+      if (draft.scheduledAt) {
+        try { await platformApi.createSchedule({ interviewId: created.id, start: draft.scheduledAt }); } catch { /* optional */ }
+      }
+      let inviteNote = '';
+      if (draft.inviteEmail) {
+        const invitation = await platformApi.createInvitation({
+          interviewId: created.id,
+          recipient: draft.inviteEmail,
+          channel: 'email',
+          locale: 'en',
+        });
+        const path = `/?invite=${encodeURIComponent(invitation.token)}`;
+        inviteNote = ` Candidate link: ${path}`;
+        try { await navigator.clipboard?.writeText(`${window.location.origin}${path}`); } catch { /* ignore */ }
+      }
+      setActiveInterviewId(created.id);
+      setInterviewLabel(created.candidateName);
+      setInterviewTick((value) => value + 1);
+      notify(`Interview ${created.id} saved.${inviteNote}`);
+    } catch (reason) {
+      notify(reason.message);
+    }
+  };
   const screen = useMemo(() => {
     const common = { onNavigate: navigate, onToast: notify };
     switch (activeScreen) {
-      case 'interviews': return <Interviews {...common} />;
-      case 'candidate': return <CandidatePortal onToast={notify} />;
-      case 'studio': return <LiveStudio onToast={notify} onSaveScorecard={saveScorecard} />;
+      case 'interviews': return <Interviews {...common} onCreate={() => setComposerOpen(true)} refreshTick={interviewTick} onOpenRoom={openRoom} />;
+      case 'candidate': return <CandidatePortal onToast={notify} inviteToken={inviteToken} onEnterRoom={openRoom} />;
+      case 'studio': return <LiveStudio onToast={notify} onSaveScorecard={saveScorecard} interviewId={activeInterviewId} invitationToken={inviteToken} interviewLabel={interviewLabel} />;
       case 'intelligence': return <Intelligence onToast={notify} />;
       case 'data': return <DataPulse onToast={notify} />;
       case 'trust': return <TrustCenter onToast={notify} />;
@@ -100,9 +170,18 @@ export default function App() {
       case 'completion': return <CompletionHub onToast={notify} />;
       case 'integrations': return <Integrations onToast={notify} />;
       case 'features': return <FeatureCatalog onToast={notify} />;
-      default: return <Dashboard {...common} />;
+      default: return <Dashboard {...common} principal={session?.principal} refreshTick={interviewTick} onCreate={() => setComposerOpen(true)} />;
     }
-  }, [activeScreen]);
+  }, [activeScreen, session, interviewTick, inviteToken, activeInterviewId, interviewLabel]);
 
-  return <div className="app-shell"><Sidebar activeScreen={activeScreen} onNavigate={navigate} isOpen={menuOpen} onClose={() => setMenuOpen(false)} /><div className="app-content"><Topbar activeScreen={activeScreen} darkMode={darkMode} onToggleTheme={() => setDarkMode((value) => !value)} onOpenMenu={() => setMenuOpen(true)} onOpenCommand={() => setCommandOpen(true)} onCreateInterview={() => setComposerOpen(true)} />{screen}</div><CommandPalette open={commandOpen} onClose={() => setCommandOpen(false)} onNavigate={navigate} onCreate={() => setComposerOpen(true)} /><InterviewComposer open={composerOpen} onClose={() => setComposerOpen(false)} onComplete={(stage) => notify(`${stage} draft created. Add panelists to finish scheduling.`)} /><Toast message={toast} onDismiss={() => setToast('')} /></div>;
+  if (isRemoteApiEnabled() && !session) {
+    return <LoginGate onSignedIn={setSession} />;
+  }
+
+  const signOut = async () => {
+    await logoutSession();
+    setSession(null);
+  };
+
+  return <div className="app-shell"><Sidebar activeScreen={activeScreen} onNavigate={navigate} isOpen={menuOpen} onClose={() => setMenuOpen(false)} /><div className="app-content"><Topbar activeScreen={activeScreen} darkMode={darkMode} principal={session?.principal} onLogout={signOut} onToggleTheme={() => setDarkMode((value) => !value)} onOpenMenu={() => setMenuOpen(true)} onOpenCommand={() => setCommandOpen(true)} onCreateInterview={() => setComposerOpen(true)} />{screen}</div><CommandPalette open={commandOpen} onClose={() => setCommandOpen(false)} onNavigate={navigate} onCreate={() => setComposerOpen(true)} /><InterviewComposer open={composerOpen} onClose={() => setComposerOpen(false)} onComplete={persistInterview} /><Toast message={toast} onDismiss={() => setToast('')} /></div>;
 }

@@ -3,14 +3,23 @@ import { upcomingInterviews } from '../data/platformData.js';
 import { foundationSnapshot } from '../data/foundationData.js';
 import { completionOverview } from '../data/completionData.js';
 import { clientEventBus } from './eventBus.js';
-import { getDemoSession } from './session.js';
+import { getSession } from './session.js';
 
 const wait = (ms = 180) => new Promise((resolve) => setTimeout(resolve, ms));
 const storageKey = 'signalroom:scorecards';
 const useApi = import.meta.env.VITE_USE_API === 'true';
 
+export class ApiError extends Error {
+  constructor(message, { status, traceId, requestId } = {}) {
+    super(message);
+    this.status = status;
+    this.traceId = traceId;
+    this.requestId = requestId;
+  }
+}
+
 async function apiRequest(path, options = {}) {
-  const session = await getDemoSession();
+  const session = getSession();
   const response = await fetch(path, {
     ...options,
     headers: {
@@ -20,11 +29,13 @@ async function apiRequest(path, options = {}) {
       ...(options.headers || {}),
     },
   });
+  const body = await response.json().catch(() => ({}));
+  const traceId = response.headers.get('x-trace-id') || body.traceId;
+  const requestId = response.headers.get('x-request-id') || body.requestId;
   if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.error || `API request failed (${response.status})`);
+    throw new ApiError(body.error || `API request failed (${response.status})`, { status: response.status, traceId, requestId });
   }
-  return response.json();
+  return body;
 }
 
 /** Re-export for browser-safe API calls from other adapters (media, product). */
@@ -83,6 +94,24 @@ export const platformApi = {
     return clientEventBus.publish('consent.updated', { interviewId, ...consent, recordedAt: new Date().toISOString() });
   },
 
+  async getPublicInvitation(token) {
+    const response = await fetch(`/api/public/invitations?token=${encodeURIComponent(token)}`);
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error || 'Unable to load invitation');
+    return body.data;
+  },
+
+  async capturePublicConsent(token, consent) {
+    const response = await fetch('/api/public/invitations/consent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, ...consent }),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error || 'Unable to save consent');
+    return body.data;
+  },
+
   async getOrganization() {
     if (useApi) return (await apiRequest('/api/organization/current')).data;
     return { id: 'org-northstar', name: 'Northstar Systems', tenantId: 'northstar' };
@@ -123,6 +152,23 @@ export const platformApi = {
   async addArtifact(interviewId, artifact) {
     if (useApi) return (await apiRequest(`/api/interviews/${interviewId}/artifacts`, { method: 'POST', headers: { 'Idempotency-Key': `artifact-${interviewId}-${crypto.randomUUID()}` }, body: JSON.stringify(artifact) })).data;
     await wait(100); return { artifact: { id: localId('artifact'), interviewId, ...artifact, encrypted: true, status: 'ready' }, job: { id: localId('job'), kind: 'artifact.process', status: 'queued' } };
+  },
+
+  async getAiStatus() {
+    if (useApi) return (await apiRequest('/api/ai/status')).data;
+    return { ollama: { configured: false, ok: false, reason: 'ui-local' }, qdrant: { configured: false, ok: false, reason: 'ui-local' }, generation: 'deterministic-fallback', retrieval: 'local-keyword' };
+  },
+
+  async suggestGroundedFollowUp(payload) {
+    if (useApi) {
+      return (await apiRequest('/api/ai/follow-up-grounded', {
+        method: 'POST',
+        headers: { 'Idempotency-Key': `followup-g-${crypto.randomUUID()}` },
+        body: JSON.stringify(payload),
+      })).data;
+    }
+    await wait(80);
+    return { question: 'How would you reconcile a local edit with a newer remote edit without silently losing intent?', competency: 'Systems thinking', provider: 'deterministic-fallback', modelVersion: 'local-heuristic', fallback: true, citations: ['approved rubric'], requiresHumanReview: true, requiresHumanJudgment: true };
   },
 
   async suggestFollowUp(payload) {
@@ -173,5 +219,64 @@ export const platformApi = {
   async postRoomAction(interviewId, action, metadata = {}) {
     await wait(100);
     return clientEventBus.publish(`interview.room.${action}`, { interviewId, ...metadata });
+  },
+
+  async createInterview(payload) {
+    if (useApi) {
+      return (await apiRequest('/api/interviews', {
+        method: 'POST',
+        headers: { 'Idempotency-Key': `interview-${crypto.randomUUID()}` },
+        body: JSON.stringify(payload),
+      })).data;
+    }
+    await wait(80);
+    return { id: localId('int'), status: 'draft', ...payload };
+  },
+
+  async createSchedule(payload) {
+    if (useApi) {
+      return (await apiRequest('/api/schedules', {
+        method: 'POST',
+        headers: { 'Idempotency-Key': `schedule-${crypto.randomUUID()}` },
+        body: JSON.stringify(payload),
+      })).data;
+    }
+    await wait(80);
+    return { id: localId('sched'), status: 'confirmed', ...payload };
+  },
+
+  async listSchedules() {
+    if (useApi) return (await apiRequest('/api/schedules')).data;
+    return [];
+  },
+
+  async createInvitation(payload) {
+    if (useApi) {
+      return (await apiRequest('/api/invitations', {
+        method: 'POST',
+        headers: { 'Idempotency-Key': `invite-${crypto.randomUUID()}` },
+        body: JSON.stringify(payload),
+      })).data;
+    }
+    await wait(80);
+    return { id: localId('inv'), token: localId('tok'), ...payload };
+  },
+
+  async search(query) {
+    if (useApi) return (await apiRequest('/api/search', { method: 'POST', body: JSON.stringify({ query, scope: ['interviews'] }) })).data;
+    await wait(60);
+    return { results: upcomingInterviews.filter((item) => `${item.candidate} ${item.role}`.toLowerCase().includes(String(query).toLowerCase())).map((item) => ({ type: 'interview', id: item.id, label: item.candidate })) };
+  },
+
+  async notify(payload) {
+    if (useApi) {
+      return (await apiRequest('/api/notifications', {
+        method: 'POST',
+        headers: { 'Idempotency-Key': `notify-${crypto.randomUUID()}` },
+        body: JSON.stringify(payload),
+      })).data;
+    }
+    await wait(60);
+    return { id: localId('notif'), status: 'queued', ...payload };
   },
 };

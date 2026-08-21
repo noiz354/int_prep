@@ -36,21 +36,28 @@ function extractCompanyFromBody(body) {
   return company.replace(/[.,;:!?]+$/, '').trim().slice(0, 180);
 }
 
-export function createCareerVaultService() {
-  const events = new Map();
-  const opportunities = new Map();
-  const artifacts = new Map();
-  const consents = new Map();
-  const shares = new Map();
-  const connectors = new Map();
-  const excluded = new Map();
-  const imports = new Map();
-  const audit = [];
+export function createCareerVaultService({ initial = {}, persist } = {}) {
+  const events = new Map(initial.events || []);
+  const opportunities = new Map(initial.opportunities || []);
+  const artifacts = new Map(initial.artifacts || []);
+  const consents = new Map(initial.consents || []);
+  const shares = new Map(initial.shares || []);
+  const connectors = new Map(initial.connectors || []);
+  const excluded = new Map(initial.excluded || []);
+  const imports = new Map(initial.imports || []);
+  const audit = [...(initial.audit || [])];
   const providers = createProviderRegistry();
+
+  const save = () => persist?.({
+    events: [...events], opportunities: [...opportunities], artifacts: [...artifacts],
+    consents: [...consents], shares: [...shares], connectors: [...connectors],
+    excluded: [...excluded], imports: [...imports], audit,
+  });
 
   const record = (action, entityType, entityId, tenantId, candidateId, actorId, metadata = {}) => {
     const entry = { id: id('cv-audit'), action, entityType, entityId, tenantId, candidateId, actorId, metadata, at: now() };
     audit.unshift(entry);
+    save();
     return entry;
   };
 

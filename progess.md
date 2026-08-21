@@ -1,8 +1,10 @@
 # SignalRoom — Project Progress
 
 > **Last updated:** 21 August 2026 (WIB)  
-> **PRD feature-foundation coverage:** **100 / 100 (100%)**  
-> **Delivery truth:** Every PRD item has a tested local foundation or provider-ready adapter. This does **not** mean external vendors are already production deployed.
+> **PRD feature-foundation coverage:** **100 / 100 adapters**  
+> **User-usable (wired + staging + production):** **0 / 168** (100 PRD + 48 CR + 20 CV)  
+> **Registry after U7:** mocked **27** · local_only **135** · blocked **6**  
+> **Delivery truth:** Local launch bar (`npm run start:usable`) is complete. Feature Catalog labels `mocked` / `local_only` / `blocked_on_decision`. Nothing is staging or production deployed.
 
 ## SignalRoom Ready — Candidate Readiness & Coaching (new bounded context)
 
@@ -94,8 +96,9 @@ fallback to the simulated room. SFU provider remains `blocked-on-provider-decisi
 |---|---:|
 | PRD capabilities documented | 100 |
 | Local foundation/provider-ready adapters | **100** |
+| User-usable capabilities | **0** (P2P media is local_only, not provider_wired) |
 | Remaining PRD feature IDs | **0** |
-| Automated tests | **56 passing** (54 Node contract/service + 2 browser utility) |
+| Automated tests | **Node contract/service + 2 browser utility** (see latest `npm test`) |
 | Production build | Passing |
 | Frontend output | ~119 KB gzipped JavaScript · ~21 KB gzipped CSS |
 | High-severity production dependency findings | 0 |
@@ -111,6 +114,8 @@ fallback to the simulated room. SFU provider remains `blocked-on-provider-decisi
 | 50% feature foundation | ✅ Complete | `docs/BATCH-50-FEATURES.md`, Control Center |
 | 100% feature foundation | ✅ Complete | `docs/BATCH-100-FEATURES.md`, Enterprise Scale control center |
 | Coding-agent skill pack | ✅ Complete | `.agents/skills/` (36 skills), `AGENTS.md`, `references/`, Claude/Copilot/Cursor compatibility |
+| Phase U0 — truth registry + human runbook | ✅ Complete | `capabilityRegistry.js`, Feature Catalog states, `docs/USER-RUNBOOK.md`, `npm run start:usable` |
+| Phases U1–U7 user-usable path | ✅ Complete (local_only) | File persist, P2P rooms, copilot, Ready/Vault, ops honesty, launch bar |
 | External provider production rollout | ⏳ Pending | Requires vendor accounts, secrets, cloud infrastructure, and approval |
 
 ## Coverage by PRD domain
@@ -164,9 +169,9 @@ npm audit --omit=dev --audit-level=high
 Latest verification:
 
 - [x] 36 project-local skills validated (`npm run skills:check`)
-- [x] 54 Node contract/service tests passing (Phases 1–5: product, media, data platform, AI governance, security/SRE)
+- [x] Node contract/service tests: 97 passing; 1 pre-existing BE-03 availability assertion is TZ-sensitive (`getHours()` vs UTC+8) and was not part of U0
 - [x] 2 browser utility tests passing
-- [x] Canonical registry validates exactly 100 valid PRD IDs
+- [x] Canonical registry validates 100 PRD + 48 CR + 20 CV IDs; U0 user-usable = 0
 - [x] API smoke paths tested for foundation actions and protected services
 - [x] Authenticated Socket.IO room join tested through Vite proxy
 - [x] Production Vite build passing
@@ -187,6 +192,9 @@ Latest verification:
 | `docs/API.md` | Authenticated API and control-plane contract |
 | `docs/ARCHITECTURE.md` | System/provider replacement architecture |
 | `docs/IMPLEMENTATION-STATUS.md` | Domain-level delivery status |
+| `docs/CAPABILITY-REGISTRY.md` | Honest state model and U0 counts |
+| `docs/USER-RUNBOOK.md` | Commands a human uses to boot the local path |
+| `PROMPT-USER-USABLE-PRODUCTION.md` | Phased prompt U0–U7 |
 
 ## Coding-agent skill pack
 
@@ -208,6 +216,26 @@ production-grade workflow skills from [addyosmani/agent-skills](https://github.c
 | `performance-bundle` | Runtime/bundle discipline |
 | `documentation-progress` | PRD/API/architecture/status hygiene |
 | `dependency-security` | Safe package, tool, MCP, and remote-skill evaluation |
+
+## Next coding-agent prompt (user-usable, not adapter-only)
+
+Phases 0–5 in `PROMPT-FINISH-STUBS-PHASED.md` are complete (tested boundaries; still in-memory / demo auth / deterministic AI / CSS media).
+
+**Phase U0 complete.** **Phase U1 complete (self-hosted path without Docker):** file persistence, LoginGate (no auto Maya), OIDC adapter (503 until Keycloak env is set), JWT logout/revoke. Mongo/Keycloak not running in this environment.
+
+**Phase U2 complete:** Dashboard/Interviews/composer/Control Center use the API when enabled; schedules and invitations persist in the file store.
+
+**Phase U3 complete:** Candidate portal uses invitation tokens; Live Studio/RTC join the same room over P2P WebRTC; honest non-SFU banner; getUserMedia/getDisplayMedia user-triggered; tracks stop on leave.
+
+**Phase U4 complete:** Consent-gated copilot/Intelligence ask path; Ollama/Qdrant probed; labelled deterministic fallback; abstain when thin; audit hashes inputs.
+
+**Phase U5 complete:** Ready/Vault JWT + file persistence; demo.js not source of truth; live_assessment lockout; UAT P0 self-host evidence. Gmail/payments still blocked.
+
+**Phase U6 complete:** KafkaProducerAdapter + schema registry when Redpanda is up; Data Pulse/Trust/Ops/Integrations read live probes; WireMock labelled sandbox mock; OTLP exporter + support trace id.
+
+**Phase U7 complete:** `npm run start:usable` boots interview + Ready + Vault; README “What is runnable now”; `docs/UAT-EVIDENCE.md`; CI companion builds. Still **0** staging_verified / production_deployed.
+
+This is the last phase of `PROMPT-USER-USABLE-PRODUCTION.md` unless a new prompt is issued.
 
 ## Production deployment backlog
 

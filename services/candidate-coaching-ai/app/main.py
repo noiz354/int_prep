@@ -13,6 +13,7 @@ from otel_logging import get_logger, log_event
 logger = get_logger("candidate-coaching-ai")
 
 MODEL_VERSION = "candidate-readiness-demo-v2"
+PROVIDER = "deterministic-fallback"
 app = FastAPI(title="SignalRoom Ready AI", version="0.2.0")
 
 class PreparationContext(BaseModel):
@@ -53,7 +54,7 @@ def assert_safe_context(context: PreparationContext, header_tenant: str | None):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "candidate-coaching-ai", "model_version": MODEL_VERSION, "boundary": "preparation_only"}
+    return {"status": "ok", "service": "candidate-coaching-ai", "model_version": MODEL_VERSION, "provider": PROVIDER, "fallback": True, "boundary": "preparation_only"}
 
 @app.post("/v1/role-intelligence")
 def role_intelligence(request: RoleIntelligenceRequest, x_tenant_id: str | None = Header(default=None)):
@@ -69,6 +70,8 @@ def role_intelligence(request: RoleIntelligenceRequest, x_tenant_id: str | None 
         "requires_human_judgment": True,
         "usage_boundary": "practice_only_not_for_live_assessment",
         "model_version": MODEL_VERSION,
+        "provider": PROVIDER,
+        "fallback": True,
     }
 
 @app.post("/v1/materials")
@@ -78,6 +81,8 @@ def materials(request: MaterialRequest, x_tenant_id: str | None = Header(default
         "materials": [{"topic": topic, "recommendation": "Use public, official, or tenant-approved documentation only.", "source_policy": "no leaked questions or confidential employer material"} for topic in request.topics],
         "sources": request.authorized_source_ids,
         "model_version": MODEL_VERSION,
+        "provider": PROVIDER,
+        "fallback": True,
     }
 
 @app.post("/v1/practice/question")
@@ -119,6 +124,8 @@ def practice_feedback(request: FeedbackRequest, x_tenant_id: str | None = Header
         "limitations": ["This is preparation feedback, not a hiring assessment.", "No personality, protected-trait, or employability inference is made."],
         "requires_human_judgment": True,
         "model_version": MODEL_VERSION,
+        "provider": PROVIDER,
+        "fallback": True,
     }
 
 @app.post("/v1/handoff/summary")
@@ -130,4 +137,6 @@ def handoff_summary(request: HandoffRequest, x_tenant_id: str | None = Header(de
         "summary": "Candidate-controlled preparation summary. Share only after candidate confirmation.",
         "excluded": ["employer evaluation data", "live interview scorecards", "confidential interview questions"],
         "model_version": MODEL_VERSION,
+        "provider": PROVIDER,
+        "fallback": True,
     }

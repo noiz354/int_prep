@@ -4,12 +4,18 @@ import { createCareerVaultService } from '../../../packages/career-vault-domain/
 import { createRagService } from '../../../packages/career-vault-domain/src/ragService.mjs';
 import { assertCandidatePrivateDefault, assertCareerPlanningContext } from '../../../packages/career-vault-domain/src/policies.mjs';
 import { hashTenant, inSpan, recordRagAbstention, requestLogger, startTelemetry } from '../../../packages/observability/src/telemetry.mjs';
+import { requireBearerOrDevHeaders } from '../../../apps/api/src/auth.mjs';
+import { createLocalJsonStore } from '../../../packages/local-json-store.mjs';
 
 await startTelemetry({ serviceName: process.env.OTEL_SERVICE_NAME || 'career-vault-api' });
 
 const app = express();
 const port = Number(process.env.PORT || 8792);
-const service = createCareerVaultService();
+const store = createLocalJsonStore({
+  filePath: process.env.VAULT_STORE_PATH || 'data/vault-store.json',
+  empty: {},
+});
+const service = createCareerVaultService({ initial: store.load(), persist: store.save });
 const rag = createRagService();
 const idempotencyResponses = new Map();
 const auditEvents = [];
@@ -27,14 +33,7 @@ app.use((req, res, next) => {
 
 // Development-only identity seam. Production must replace this with verified
 // OIDC/SAML claims, tenant membership, roles, MFA, and durable audit events.
-function requireContext(req, res, next) {
-  const tenantId = req.get('x-tenant-id');
-  const actorId = req.get('x-actor-id');
-  const role = req.get('x-actor-role');
-  if (!tenantId || !actorId || !role) return res.status(401).json({ error: 'Tenant, actor, and role context are required.' });
-  req.actor = { tenantId, actorId, role };
-  next();
-}
+const requireContext = requireBearerOrDevHeaders;
 
 function idempotent(req, res, next) {
   const key = req.get('idempotency-key');
@@ -116,6 +115,7 @@ const ragAskSchema = z.object({
   question: z.string().trim().min(3).max(1000),
   opportunityId: z.string().optional(),
   includeArtifactIds: z.array(z.string().min(1)).optional(),
+  sessionContext: z.enum(['preparation', 'career_planning', 'live_assessment']).default('career_planning'),
 });
 
 const ragPlanSchema = z.object({
@@ -266,7 +266,12 @@ app.post('/v1/rag/ask', requireContext, candidateOnly, async (req, res) => {
     const ragProvider = providers.find((item) => item.id === 'rag_coach');
     if (ragProvider && !ragProvider.enabled) return res.status(409).json({ error: 'The RAG Career Coach is disabled. Enable it in Trust & data to ask cited questions over your records.' });
     const result = await inSpan('career_vault.rag.ask', { tenant: hashTenant(req.actor.tenantId), citation_count: 0 }, async (span) => {
-      const output = await rag.ask({ tenantId: req.actor.tenantId, candidateId: req.actor.actorId, sessionContext: 'career_planning', question: parsed.data.question, opportunityId: parsed.data.opportunityId, evidence: ragEvidence(req, parsed.data.includeArtifactIds) });
+      if (parsed.data.sessionContext === 'live_assessment') {
+        const error = new Error('Career Vault and RAG planning tools are not available during a live hiring assessment.');
+        error.status = 409;
+        throw error;
+      }
+      const output = await rag.ask({ tenantId: req.actor.tenantId, candidateId: req.actor.actorId, sessionContext: parsed.data.sessionContext, question: parsed.data.question, opportunityId: parsed.data.opportunityId, evidence: ragEvidence(req, parsed.data.includeArtifactIds) });
       span.setAttribute('abstention', output.abstention);
       span.setAttribute('citation_count', output.citations.length);
       if (output.abstention) {

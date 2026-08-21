@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Icon } from './Icon.jsx';
 import { platformApi } from '../lib/platformApi.js';
+import { summarizeByState } from '../data/capabilityRegistry.js';
+import { CapabilityTruthBar } from './CapabilityTruthBar.jsx';
 
 const tabs = [
   { id: 'workflow', label: 'Workflow', icon: 'briefcase' },
@@ -32,6 +34,8 @@ export function FoundationHub({ onToast }) {
   const [incidents, setIncidents] = useState([]);
   const [webhooks, setWebhooks] = useState([]);
   const [debrief, setDebrief] = useState(null);
+  const [interviews, setInterviews] = useState([]);
+  const [selectedInterviewId, setSelectedInterviewId] = useState('');
 
   const load = async () => {
     setError('');
@@ -39,6 +43,13 @@ export function FoundationHub({ onToast }) {
       const data = await platformApi.getFoundationSnapshot();
       setSnapshot(data);
       setWebhooks(data.webhooks || []);
+      try {
+        const list = await platformApi.getInterviews();
+        setInterviews(Array.isArray(list) ? list : []);
+        if (list?.[0]?.id) setSelectedInterviewId((current) => current || list[0].id);
+      } catch {
+        setInterviews([]);
+      }
     } catch (reason) {
       setError(reason.message || 'Unable to load control-plane data.');
     }
@@ -57,29 +68,31 @@ export function FoundationHub({ onToast }) {
     } finally { setBusy(''); }
   };
 
-  const totalFeatures = 50;
+  const interviewSummary = summarizeByState('interview');
   if (!snapshot) return <main className="page foundation-page"><EmptyState /></main>;
 
   const toggleFlag = (flag) => run(`flag-${flag.id}`, () => platformApi.setFeatureFlag(flag.id, !flag.enabled), (updated) => setSnapshot((current) => ({ ...current, flags: current.flags.map((item) => item.id === updated.id ? { ...item, ...updated } : item) })));
 
   return <main className="page foundation-page">
     <section className="foundation-hero surface-card">
-      <div><span className="pill pill-violet"><Icon name="layers" size={14} /> DELIVERY CONTROL CENTER</span><h2>Fifty capabilities now have a <em>working foundation.</em></h2><p>Operate the local control plane for workflows, automation, data contracts, release safety, privacy controls, and evidence-driven hiring operations.</p><div className="foundation-hero-meta"><span><Icon name="check" size={15} /> {totalFeatures} / 100 PRD capabilities implemented as local foundations</span><span><Icon name="shield" size={15} /> Tenant-scoped and audit-aware actions</span></div></div>
-      <div className="foundation-orbit" aria-hidden="true"><i className="foundation-ring one"/><i className="foundation-ring two"/><span><Icon name="layers" size={31} /></span><b>50%</b></div>
+      <div><span className="pill pill-amber"><Icon name="layers" size={14} /> DELIVERY CONTROL CENTER</span><h2>Local control plane. <em>Not production.</em></h2><p>Operate in-memory workflows, jobs, contracts, flags, and privacy previews. Persistence, SSO, and providers are still Phase U1+.</p><div className="foundation-hero-meta"><span><Icon name="alert" size={15} /> {interviewSummary.userUsable} / {interviewSummary.total} user-usable · {interviewSummary.counts.local_only} local only</span><span><Icon name="shield" size={15} /> Tenant-scoped and audit-aware actions</span></div></div>
+      <div className="foundation-orbit" aria-hidden="true"><i className="foundation-ring one"/><i className="foundation-ring two"/><span><Icon name="layers" size={31} /></span><b>U0</b></div>
     </section>
 
-    <section className="hub-metrics-grid"><Metric label="Implemented foundations" value="50" note="of 100 PRD capabilities"/><Metric label="Active workflows" value={snapshot.workflows.length} note="approved interview loops" tone="mint"/><Metric label="Registered contracts" value={snapshot.schemas.length} note="versioned event schemas" tone="sky"/><Metric label="Release flags" value={snapshot.flags.length} note="tenant/role scoped" tone="amber"/></section>
+    <CapabilityTruthBar product="interview" />
+
+    <section className="hub-metrics-grid"><Metric label="User-usable" value={String(interviewSummary.userUsable)} note="of 100 PRD capabilities"/><Metric label="Active workflows" value={snapshot.workflows.length} note="approved interview loops" tone="mint"/><Metric label="Registered contracts" value={snapshot.schemas.length} note="versioned event schemas" tone="sky"/><Metric label="Release flags" value={snapshot.flags.length} note="tenant/role scoped" tone="amber"/></section>
 
     <section className="hub-tabs" role="tablist" aria-label="Foundation control areas">{tabs.map((tab) => <button key={tab.id} role="tab" aria-selected={activeTab === tab.id} className={activeTab === tab.id ? 'is-active' : ''} onClick={() => setActiveTab(tab.id)}><Icon name={tab.icon} size={16} /> {tab.label}</button>)}</section>
     {error && <div className="hub-error"><Icon name="alert" size={17} /> {error}<button onClick={load}>Retry</button></div>}
 
     {activeTab === 'workflow' && <section className="hub-grid workflow-grid">
       <article className="surface-card hub-card requisition-card"><div className="surface-header"><div><span className="section-kicker">EO-01 · BE-14</span><h2>Requisitions & approved loops</h2></div><span className="status-chip status-mint">Active</span></div><div className="requisition-list">{snapshot.requisitions.map((item) => <article key={item.id}><span className="requisition-mark"><Icon name="briefcase" size={17}/></span><div><b>{item.title}</b><small>{item.department} · {item.openings} opening{item.openings > 1 ? 's' : ''}</small><code>{item.workflowId}</code></div><span className="status-chip status-violet">{item.status}</span></article>)}</div><div className="workflow-rail">{snapshot.workflows.map((workflow) => <div key={workflow.id}><b>{workflow.name}</b><span>{workflow.stages.map((stage) => <i key={stage}>{stage}</i>)}</span><small>Evidence gate: {workflow.requiredEvidence.join(' + ')}</small></div>)}</div></article>
-      <aside className="surface-card hub-card lifecycle-card"><span className="section-kicker">BE-02 · LIFECYCLE STATE MACHINE</span><h2>Move a scheduled interview safely</h2><p>Transitions are validated by the server, idempotent, evented, and audit logged.</p><label className="hub-field"><span>Interview</span><select defaultValue="int-2051"><option value="int-2051">int-2051 · Nadia Rahman</option></select></label><label className="hub-field"><span>Next state</span><select value={transition} onChange={(event) => setTransition(event.target.value)}>{lifecycleOptions.map((item) => <option key={item}>{item}</option>)}</select></label><button className="button button-primary full" disabled={Boolean(busy)} onClick={() => run('transition', () => platformApi.transitionInterview('int-2051', transition), (updated) => onToast(`Interview int-2051 transitioned to ${updated.status}.`))}><Icon name="refresh" size={16}/> {busy === 'transition' ? 'Transitioning…' : 'Validate & transition'}</button></aside>
+      <aside className="surface-card hub-card lifecycle-card"><span className="section-kicker">BE-02 · LIFECYCLE STATE MACHINE</span><h2>Move a scheduled interview safely</h2><p>Transitions are validated by the server, idempotent, evented, and audit logged.</p><label className="hub-field"><span>Interview</span><select value={selectedInterviewId} onChange={(event) => setSelectedInterviewId(event.target.value)}>{interviews.length ? interviews.map((item) => <option key={item.id} value={item.id}>{item.id} · {item.candidateName || item.candidate}</option>) : <option value="">No interviews in store</option>}</select></label><label className="hub-field"><span>Next state</span><select value={transition} onChange={(event) => setTransition(event.target.value)}>{lifecycleOptions.map((item) => <option key={item}>{item}</option>)}</select></label><button className="button button-primary full" disabled={Boolean(busy) || !selectedInterviewId} onClick={() => run('transition', () => platformApi.transitionInterview(selectedInterviewId, transition), (updated) => onToast(`Interview ${selectedInterviewId} transitioned to ${updated.status}.`))}><Icon name="refresh" size={16}/> {busy === 'transition' ? 'Transitioning…' : 'Validate & transition'}</button></aside>
     </section>}
 
     {activeTab === 'automation' && <section className="hub-grid automation-grid">
-      <article className="surface-card hub-card jobs-card"><div className="surface-header"><div><span className="section-kicker">BE-08 · BE-10</span><h2>Artifacts & durable jobs</h2></div><button className="text-button" onClick={load}>Refresh <Icon name="refresh" size={14}/></button></div><div className="job-list">{snapshot.jobs.slice(0, 5).map((job) => <article key={job.id}><span className="job-icon"><Icon name={job.kind.includes('artifact') ? 'file' : job.kind.includes('debrief') ? 'sparkles' : 'layers'} size={15}/></span><div><b>{job.kind}</b><small>{job.id} · {job.priority || 'normal'} priority</small></div><span className="status-chip status-amber">{job.status}</span></article>)}</div><div className="artifact-form"><label className="hub-field"><span>Controlled artifact reference</span><input value={artifactReference} onChange={(event) => setArtifactReference(event.target.value)} /></label><button className="button button-secondary" disabled={Boolean(busy)} onClick={() => run('artifact', () => platformApi.addArtifact('int-2051', { type: 'recording', reference: artifactReference, retentionClass: 'candidate-standard-90d' }), (result) => setSnapshot((current) => ({ ...current, jobs: [result.job, ...current.jobs] })))}><Icon name="file" size={16}/> {busy === 'artifact' ? 'Queuing…' : 'Attach controlled artifact'}</button></div></article>
+      <article className="surface-card hub-card jobs-card"><div className="surface-header"><div><span className="section-kicker">BE-08 · BE-10</span><h2>Artifacts & durable jobs</h2></div><button className="text-button" onClick={load}>Refresh <Icon name="refresh" size={14}/></button></div><div className="job-list">{snapshot.jobs.slice(0, 5).map((job) => <article key={job.id}><span className="job-icon"><Icon name={job.kind.includes('artifact') ? 'file' : job.kind.includes('debrief') ? 'sparkles' : 'layers'} size={15}/></span><div><b>{job.kind}</b><small>{job.id} · {job.priority || 'normal'} priority</small></div><span className="status-chip status-amber">{job.status}</span></article>)}</div><div className="artifact-form"><label className="hub-field"><span>Controlled artifact reference</span><input value={artifactReference} onChange={(event) => setArtifactReference(event.target.value)} /></label><button className="button button-secondary" disabled={Boolean(busy) || !selectedInterviewId} onClick={() => run('artifact', () => platformApi.addArtifact(selectedInterviewId, { type: 'recording', reference: artifactReference, retentionClass: 'candidate-standard-90d' }), (result) => setSnapshot((current) => ({ ...current, jobs: [result.job, ...current.jobs] })))}><Icon name="file" size={16}/> {busy === 'artifact' ? 'Queuing…' : 'Attach controlled artifact'}</button></div></article>
       <aside className="surface-card hub-card webhook-card-hub"><span className="section-kicker">BE-11 · VERSIONED API & WEBHOOKS</span><h2>Integration delivery contract</h2><p>Webhook endpoints are registered with event allowlists and signing references. Delivery itself remains a provider-backed production step.</p><div className="webhook-mini-list">{webhooks.length ? webhooks.map((item) => <span key={item.id}><Icon name="plug" size={14}/>{item.url}</span>) : <span><Icon name="lock" size={14}/> No external endpoint registered</span>}</div><button className="button button-primary full" disabled={Boolean(busy)} onClick={() => run('webhook', () => platformApi.createWebhook({ url: 'https://example.test/signalroom-events', eventTypes: ['interview.lifecycle.transitioned', 'scorecard.submitted'], owner: 'Talent Operations' }), (item) => setWebhooks((current) => [item, ...current]))}><Icon name="plus" size={16}/> {busy === 'webhook' ? 'Registering…' : 'Register test endpoint'}</button></aside>
     </section>}
 

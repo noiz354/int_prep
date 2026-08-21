@@ -75,12 +75,12 @@ async function reportTelemetry({ latencyMs, packetLoss, jitterMs }) {
 }
 
 async function getSession() {
-  const cached = window.__signalroomSession;
-  if (cached) return cached;
-  const response = await fetch('/api/auth/demo-login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'maya@northstar.example' }) });
-  const { data } = await response.json();
-  window.__signalroomSession = data;
-  return data;
+  try {
+    const raw = sessionStorage.getItem('signalroom:api-session:v1');
+    const session = raw ? JSON.parse(raw) : null;
+    if (session?.accessToken) return session;
+  } catch { /* ignore */ }
+  throw new Error('Sign in on the main app first (no silent demo login).');
 }
 
 export function mediaStateLabel(state) {

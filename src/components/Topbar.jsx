@@ -15,8 +15,9 @@ const labels = {
   features: ['Feature catalog', 'A transparent map of the 100-feature product plan'],
 };
 
-export function Topbar({ activeScreen, darkMode, onToggleTheme, onOpenMenu, onOpenCommand, onCreateInterview }) {
+export function Topbar({ activeScreen, darkMode, principal, onLogout, onToggleTheme, onOpenMenu, onOpenCommand, onCreateInterview }) {
   const [title, subtitle] = labels[activeScreen] || labels.overview;
+  const initials = (principal?.name || 'Guest').split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase();
   return (
     <header className="topbar">
       <div className="topbar-title-group">
@@ -45,7 +46,8 @@ export function Topbar({ activeScreen, darkMode, onToggleTheme, onOpenMenu, onOp
         <button className="create-button" onClick={onCreateInterview}>
           <Icon name="plus" size={18} /><span>New interview</span>
         </button>
-        <button className="user-avatar" aria-label="Open Maya Patel account menu">MP</button>
+        {onLogout && <button className="text-button" onClick={onLogout}>Sign out</button>}
+        <button className="user-avatar" aria-label={principal ? `${principal.name} account` : 'Account'}>{initials}</button>
       </div>
     </header>
   );

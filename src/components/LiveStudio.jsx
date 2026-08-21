@@ -1,45 +1,59 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from './Icon.jsx';
-import { copilotSeed, intelligenceSignals, liveParticipants, scorecardCriteria, transcriptSeed } from '../data/platformData.js';
+import { scorecardCriteria, transcriptSeed } from '../data/platformData.js';
+import { platformApi } from '../lib/platformApi.js';
 import { calculateScorecard, recommendationFor } from '../lib/scorecard.js';
 import { connectInterviewRoom } from '../lib/realtimeClient.js';
-import { applyMediaEnhancement, createWhiteboardSession, provisionMediaSession, requestDeviceTracks, stopDeviceTracks, updateMediaState } from '../lib/mediaClient.js';
+import { applyMediaEnhancement, applyTrackConstraints, createWhiteboardSession, provisionMediaSession, requestDeviceTracks, requestDisplayMedia, stopDeviceTracks } from '../lib/mediaClient.js';
+import { createMeshController } from '../lib/rtcMesh.js';
+import { getSession, isRemoteApiEnabled } from '../lib/session.js';
 
-function VideoTile({ participant, compact = false, active = false, cameraOn }) {
+function PlaceholderTile({ name, role, compact = false }) {
   return (
-    <div className={`video-tile gradient-${participant.gradient} ${compact ? 'is-compact' : ''} ${active ? 'is-active-speaker' : ''}`}>
+    <div className={`video-tile gradient-indigo ${compact ? 'is-compact' : ''}`}>
       <div className="video-grid-lines" />
-      <div className="video-ambient orb-a" /><div className="video-ambient orb-b" />
-      <span className="video-role-label">{participant.role}</span>
-      <div className="video-person">
-        <span className="video-person-shadow" />
-        <span className="video-head"><i /></span>
-        <span className="video-body" />
-      </div>
-      <span className="video-initials">{participant.initials}</span>
-      <div className="video-footer"><span className="video-name">{participant.name}</span><span className="video-state">{participant.speaking ? <><i className="voice-bars"><b /><b /><b /></i> Speaking</> : participant.muted ? <><Icon name="micOff" size={13} /> Muted</> : cameraOn ? <><Icon name="mic" size={13} /> On mic</> : <><Icon name="videoOff" size={13} /> Camera off</>}</span></div>
+      <span className="video-role-label">{role}</span>
+      <div className="video-person"><span className="video-person-shadow" /><span className="video-head"><i /></span><span className="video-body" /></div>
+      <div className="video-footer"><span className="video-name">{name}</span><span className="video-state">Waiting for camera</span></div>
     </div>
   );
 }
 
-function CopilotPanel({ onAction, queued }) {
-  return <div className="room-panel-body copilot-panel">
-    <div className="panel-intro"><span className="copilot-star"><Icon name="sparkles" size={16} /></span><div><strong>Private copilot</strong><p>Grounded in the approved rubric</p></div><span className="privacy-lock"><Icon name="lock" size={13} /> Private</span></div>
-    <div className="signal-mini-grid">
-      {intelligenceSignals.slice(0, 2).map((signal) => <div key={signal.label}><span>{signal.label}</span><strong>{signal.value}</strong><i><b style={{ width: `${signal.progress}%` }} /></i></div>)}
+function LiveTile({ stream, label, muted, blur, compact }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (ref.current) ref.current.srcObject = stream || null;
+  }, [stream]);
+  return (
+    <div className={`video-tile is-rtc-preview ${compact ? 'is-compact' : ''}`}>
+      <video ref={ref} autoPlay playsInline muted={muted} style={blur ? { filter: 'blur(12px)' } : undefined} aria-label={label} />
+      <span className="video-role-label">{label}</span>
     </div>
-    <div className="copilot-section-title"><span>LIVE GUIDANCE</span><button onClick={() => onAction('Generated a fresh, rubric-grounded prompt.')}>Refresh</button></div>
+  );
+}
+
+function CopilotPanel({ queued, suggestion, loading, consent, onConsent, onRefresh, onQueue }) {
+  return <div className="room-panel-body copilot-panel">
+    <div className="panel-intro"><span className="copilot-star"><Icon name="sparkles" size={16} /></span><div><strong>Private copilot</strong><p>{suggestion?.provider || 'Ask after consent'} · {suggestion?.modelVersion || '—'}</p></div><span className="privacy-lock"><Icon name="lock" size={13} /> Private</span></div>
+    <label className="approval-toggle"><span><b>AI assistance consent</b><small>Required before a model or fallback call</small></span><button className={`toggle ${consent ? 'is-on' : ''}`} onClick={onConsent} aria-pressed={consent}><i /></button></label>
+    <div className="copilot-section-title"><span>GROUNDED GUIDANCE</span><button onClick={onRefresh} disabled={loading}>{loading ? 'Asking…' : 'Refresh'}</button></div>
     <div className="copilot-cards">
-      {copilotSeed.map((item) => <article className={`copilot-card copilot-${item.type}`} key={item.id}><span className="copilot-card-icon"><Icon name={item.type === 'coverage' ? 'target' : item.type === 'followup' ? 'sparkles' : 'check'} size={16} /></span><div><small>{item.title}</small><p>{item.text}</p><button onClick={() => onAction(`${item.action} for Alex Morgan.`)}>{item.action} <Icon name="arrowUpRight" size={13} /></button></div></article>)}
+      {suggestion?.abstention || suggestion?.allowed === false ? (
+        <article className="copilot-card copilot-signal"><span className="copilot-card-icon"><Icon name="shield" size={16} /></span><div><small>Abstained</small><p>{suggestion.message || 'Consent or evidence missing.'}</p></div></article>
+      ) : suggestion?.question ? (
+        <article className="copilot-card copilot-followup"><span className="copilot-card-icon"><Icon name="sparkles" size={16} /></span><div><small>{suggestion.fallback ? 'Labelled fallback' : 'Gateway'} · {suggestion.competency || 'rubric'}</small><p>{suggestion.question}</p><button onClick={() => onQueue(suggestion.question)}>Queue privately <Icon name="arrowUpRight" size={13} /></button></div></article>
+      ) : (
+        <article className="copilot-card"><span className="copilot-card-icon"><Icon name="sparkles" size={16} /></span><div><small>Idle</small><p>Enable consent, then refresh to request a grounded follow-up.</p></div></article>
+      )}
     </div>
     {queued.length > 0 && <div className="queued-prompt"><Icon name="check" size={15} /><span><b>{queued.length} prompt{queued.length > 1 ? 's' : ''} queued</b><small>Only you can see these notes.</small></span></div>}
-    <div className="ai-disclosure"><Icon name="shield" size={15} /> AI suggestions require human judgment and are retained in the decision audit trail.</div>
+    <div className="ai-disclosure"><Icon name="shield" size={15} /> AI suggestions require human judgment. Audit stores provider/model/hash, not raw PII.</div>
   </div>;
 }
 
 function TranscriptPanel({ transcript, captions, onToggleCaptions }) {
   return <div className="room-panel-body transcript-panel">
-    <div className="transcript-toolbar"><div><strong>Live transcript</strong><span><i className="tiny-live-dot" /> {captions ? 'Captions enabled' : 'Captions paused'}</span></div><button className={`toggle ${captions ? 'is-on' : ''}`} onClick={onToggleCaptions} aria-pressed={captions}><i /></button></div>
+    <div className="transcript-toolbar"><div><strong>Live transcript</strong><span><i className="tiny-live-dot" /> {captions ? 'Captions enabled' : 'Captions paused'} · seeded until ASR</span></div><button className={`toggle ${captions ? 'is-on' : ''}`} onClick={onToggleCaptions} aria-pressed={captions}><i /></button></div>
     <div className="transcript-search"><Icon name="search" size={16} /><input aria-label="Search transcript" placeholder="Search transcript" /></div>
     <div className="transcript-list">
       {transcript.map((segment) => <article className={`transcript-segment ${segment.tone}`} key={segment.id}><div><span>{segment.speaker}</span><time>{segment.time}</time></div><p>{segment.text}</p><button aria-label={`Save excerpt from ${segment.speaker}`}><Icon name="copy" size={13} /></button></article>)}
@@ -48,10 +62,10 @@ function TranscriptPanel({ transcript, captions, onToggleCaptions }) {
   </div>;
 }
 
-function ScorecardPanel({ criteria, onScore, onSubmit, submitting }) {
+function ScorecardPanel({ criteria, candidateName, onScore, onSubmit, submitting }) {
   const summary = useMemo(() => calculateScorecard(criteria), [criteria]);
   return <div className="room-panel-body scorecard-panel">
-    <div className="scorecard-summary"><div><span className="section-kicker">INDEPENDENT SCORECARD</span><h3>Alex Morgan</h3><p>Locked from other panelists until you submit.</p></div><div className="score-ring"><b>{summary.completeness}%</b><span>complete</span></div></div>
+    <div className="scorecard-summary"><div><span className="section-kicker">INDEPENDENT SCORECARD</span><h3>{candidateName}</h3><p>Locked from other panelists until you submit.</p></div><div className="score-ring"><b>{summary.completeness}%</b><span>complete</span></div></div>
     <div className="scorecard-criteria">
       {criteria.map((criterion) => <article key={criterion.id} className="criterion"><div className="criterion-top"><div><strong>{criterion.label}</strong><span>{criterion.weight}% weight</span></div><span className={Number.isFinite(criterion.score) ? 'criterion-score' : 'criterion-missing'}>{Number.isFinite(criterion.score) ? `${criterion.score}/5` : 'Required'}</span></div><div className="score-buttons" aria-label={`Score ${criterion.label}`}>{[1, 2, 3, 4, 5].map((score) => <button key={score} className={criterion.score === score ? 'is-selected' : ''} aria-label={`Score ${score} out of 5`} onClick={() => onScore(criterion.id, score)}>{score}</button>)}</div>{criterion.evidence && <p className="evidence-line"><Icon name="file" size={14} /> {criterion.evidence}</p>}</article>)}
     </div>
@@ -59,161 +73,308 @@ function ScorecardPanel({ criteria, onScore, onSubmit, submitting }) {
   </div>;
 }
 
-function WhiteboardPanel({ whiteboard, onOpen }) {
+function WhiteboardPanel({ strokes, onStroke, onClear }) {
+  const canvasRef = useRef(null);
+  const drawing = useRef(false);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#f7f8fc';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = '#4f42cb';
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    for (const stroke of strokes) {
+      ctx.beginPath();
+      ctx.moveTo(stroke.x1 * canvas.width, stroke.y1 * canvas.height);
+      ctx.lineTo(stroke.x2 * canvas.width, stroke.y2 * canvas.height);
+      ctx.stroke();
+    }
+  }, [strokes]);
+
+  const point = (event) => {
+    const canvas = canvasRef.current;
+    const box = canvas.getBoundingClientRect();
+    return { x: (event.clientX - box.left) / box.width, y: (event.clientY - box.top) / box.height };
+  };
+
   return <div className="room-panel-body whiteboard-panel">
-    <div className="panel-intro"><span className="copilot-star"><Icon name="monitor" size={16} /></span><div><strong>Collaborative whiteboard</strong><p>Screen share requires a user gesture; host controls annotations</p></div></div>
-    {whiteboard ? (
-      <div className="whiteboard-canvas" aria-label="Collaborative whiteboard canvas">
-        <div className="whiteboard-empty-state"><Icon name="pen" size={22} /><p>Annotate or share your screen. Consent is required before screen sharing starts.</p><span>{whiteboard.annotations.length} annotation{whiteboard.annotations.length === 1 ? '' : 's'} · {whiteboard.status}</span></div>
-      </div>
-    ) : (
-      <button className="button button-secondary full" onClick={onOpen}><Icon name="monitor" size={16} /> Open whiteboard</button>
-    )}
+    <div className="panel-intro"><span className="copilot-star"><Icon name="monitor" size={16} /></span><div><strong>Collaborative whiteboard</strong><p>Local canvas; strokes sync over Socket.IO. Not a CRDT.</p></div></div>
+    <canvas
+      ref={canvasRef}
+      width={640}
+      height={360}
+      className="whiteboard-draw-canvas"
+      aria-label="Collaborative whiteboard canvas"
+      onPointerDown={(event) => { drawing.current = point(event); event.currentTarget.setPointerCapture(event.pointerId); }}
+      onPointerMove={(event) => {
+        if (!drawing.current) return;
+        const next = point(event);
+        onStroke({ x1: drawing.current.x, y1: drawing.current.y, x2: next.x, y2: next.y });
+        drawing.current = next;
+      }}
+      onPointerUp={() => { drawing.current = false; }}
+    />
+    <button className="button button-secondary full" onClick={onClear}>Clear local board</button>
   </div>;
 }
 
-export function LiveStudio({ onToast, onSaveScorecard }) {
+export function LiveStudio({ onToast, onSaveScorecard, interviewId, invitationToken, interviewLabel }) {
+  const apiMode = isRemoteApiEnabled();
+  const session = getSession();
+  const roomId = interviewId || (!apiMode ? 'int-2048' : '');
   const [activePanel, setActivePanel] = useState('copilot');
   const [muted, setMuted] = useState(false);
   const [cameraOn, setCameraOn] = useState(true);
-  const [shared, setShared] = useState(false);
   const [captions, setCaptions] = useState(true);
   const [transcript, setTranscript] = useState(transcriptSeed);
   const [criteria, setCriteria] = useState(scorecardCriteria);
   const [queued, setQueued] = useState([]);
+  const [aiConsent, setAiConsent] = useState(false);
+  const [copilot, setCopilot] = useState(null);
+  const [copilotBusy, setCopilotBusy] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [realtimeStatus, setRealtimeStatus] = useState({ state: 'local', label: 'Local event adapter' });
   const [remotePeers, setRemotePeers] = useState([]);
-  const [mediaStatus, setMediaStatus] = useState({ state: 'provisioning', label: 'Provisioning media session' });
-  const [enhancement, setEnhancement] = useState({ blur: false, noiseSuppression: false, echoCancellation: false });
-  const [whiteboard, setWhiteboard] = useState(null);
+  const [remoteStreams, setRemoteStreams] = useState({});
+  const [mediaStatus, setMediaStatus] = useState({ state: 'idle', label: 'Camera off until you enable it' });
+  const [enhancement, setEnhancement] = useState({ blur: false, noiseSuppression: true, echoCancellation: true });
+  const [shareError, setShareError] = useState('');
+  const [sharing, setSharing] = useState(false);
+  const [strokes, setStrokes] = useState([]);
   const [rtcStream, setRtcStream] = useState(null);
-  const rtcVideoRef = useRef(null);
+  const rtcStreamRef = useRef(null);
+  const [left, setLeft] = useState(false);
   const mediaSessionRef = useRef(null);
   const realtimeRef = useRef(null);
+  const meshRef = useRef(null);
+  const displayStreamRef = useRef(null);
   const [code, setCode] = useState(`function reconcileEdits(local, remote) {\n  const byId = new Map(remote.map(item => [item.id, item]));\n  for (const change of local) {\n    if (!byId.has(change.id) || change.updatedAt > byId.get(change.id).updatedAt) {\n      byId.set(change.id, change);\n    }\n  }\n  return [...byId.values()];\n}`);
 
+  const stopAllMedia = () => {
+    stopDeviceTracks(rtcStreamRef.current);
+    stopDeviceTracks(displayStreamRef.current);
+    displayStreamRef.current = null;
+    rtcStreamRef.current = null;
+    setRtcStream(null);
+    meshRef.current?.stop();
+    meshRef.current = null;
+  };
+
   useEffect(() => {
+    if (!roomId || left) return undefined;
     let disposed = false;
-    connectInterviewRoom('int-2048', {
+    connectInterviewRoom(roomId, {
       onStatus: (status) => !disposed && setRealtimeStatus(status),
-      onPresence: (participants) => !disposed && setRemotePeers(participants),
+      onPresence: (participants) => {
+        if (disposed) return;
+        setRemotePeers(participants || []);
+        meshRef.current?.syncPresence(participants || []);
+      },
       onRoomAction: (event) => !disposed && onToast(`${event.name} updated ${event.action.replace('.changed', '')}.`),
-    }).then((client) => {
-      if (disposed) client.disconnect();
-      else realtimeRef.current = client;
+      onSignal: (event) => {
+        if (event.kind === 'whiteboard.stroke' && event.payload) {
+          setStrokes((items) => [...items.slice(-400), event.payload]);
+          return;
+        }
+        meshRef.current?.handleSignal(event.kind, event.payload, event.userId);
+      },
+    }, { invitationToken }).then((client) => {
+      if (disposed) {
+        client.disconnect();
+        return;
+      }
+      realtimeRef.current = client;
+      meshRef.current = createMeshController({
+        selfId: client.selfId || session?.principal?.id || 'local',
+        sendSignal: (kind, payload) => client.sendSignal(kind, payload),
+        onRemoteStream: (userId, stream) => setRemoteStreams((current) => ({ ...current, [userId]: stream })),
+        onRemoteGone: (userId) => setRemoteStreams((current) => {
+          const next = { ...current };
+          delete next[userId];
+          return next;
+        }),
+        onConnectionState: (state) => setMediaStatus((current) => ({ ...current, ice: state })),
+      });
     }).catch(() => !disposed && setRealtimeStatus({ state: 'error', label: 'Realtime fallback active' }));
     return () => { disposed = true; realtimeRef.current?.disconnect(); realtimeRef.current = null; };
-  }, [onToast]);
+  }, [roomId, invitationToken, left, onToast, session?.principal?.id]);
 
-  // Phase 2 — provision a resilient media session behind the control-plane adapter.
   useEffect(() => {
+    if (!roomId || left) return undefined;
     let disposed = false;
-    provisionMediaSession('int-2048', { region: 'ap-southeast-1' }).then((session) => {
+    provisionMediaSession(roomId, { region: 'ap-southeast-1' }).then((sessionRecord) => {
       if (disposed) return;
-      mediaSessionRef.current = session;
-      setMediaStatus({ state: 'ready', label: `Media ready · ${session.sfuCluster}` });
-    }).catch(() => !disposed && setMediaStatus({ state: 'error', label: 'Media session unavailable' }));
+      mediaSessionRef.current = sessionRecord;
+    }).catch(() => {});
     return () => { disposed = true; };
-  }, []);
+  }, [roomId, left]);
 
-  const addTranscript = () => {
-    const next = { id: Date.now(), speaker: 'Maya Patel', time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }), text: 'Let’s make the conflict-resolution rule concrete. Which version wins when two edits have the same timestamp?', tone: 'interviewer' };
-    setTranscript((items) => [...items, next]);
-    setQueued((items) => [...items, 'Conflict resolution']);
-    onToast('A neutral follow-up was added to the live transcript.');
-  };
+  useEffect(() => () => { stopAllMedia(); }, []);
 
-  const handleCopilotAction = (message) => {
-    setQueued((items) => [...items, message]);
-    onToast(message);
-  };
-
-  // User-triggered real device access (AGENTS: never auto-request; stop tracks after).
   const enableRealCamera = async () => {
     try {
       const stream = await requestDeviceTracks();
+      rtcStreamRef.current = stream;
       setRtcStream(stream);
-      if (rtcVideoRef.current) rtcVideoRef.current.srcObject = stream;
-      setMediaStatus({ state: 'ready', label: 'Real camera preview' });
-      onToast('Real camera preview enabled. Tracks stop when you leave the room.');
+      meshRef.current?.setLocalStream(stream);
+      setMediaStatus({ state: 'ready', label: 'Camera on · peer-to-peer mesh (not LiveKit)' });
+      onToast('Camera enabled. Tracks stop when you leave the room.');
     } catch {
-      setMediaStatus({ state: 'error', label: 'Media session unavailable' });
-      onToast('Camera or microphone access was denied. You can continue with the simulated room.');
+      setMediaStatus({ state: 'error', label: 'Camera or microphone denied' });
+      onToast('Camera or microphone access was denied. You can stay in the waiting room without media.');
     }
   };
 
   const disableRealCamera = () => {
     stopDeviceTracks(rtcStream);
     setRtcStream(null);
-    if (rtcVideoRef.current) rtcVideoRef.current.srcObject = null;
+    setMediaStatus({ state: 'idle', label: 'Camera off until you enable it' });
   };
 
-  useEffect(() => () => { stopDeviceTracks(rtcStream); }, [rtcStream]);
+  const handleShare = async () => {
+    setShareError('');
+    if (sharing) {
+      stopDeviceTracks(displayStreamRef.current);
+      displayStreamRef.current = null;
+      const cameraTrack = rtcStream?.getVideoTracks()[0] || null;
+      meshRef.current?.replaceVideoTrack(cameraTrack);
+      setSharing(false);
+      realtimeRef.current?.sendAction('screen-share.changed', false);
+      onToast('Screen sharing stopped.');
+      return;
+    }
+    try {
+      const display = await requestDisplayMedia();
+      displayStreamRef.current = display;
+      const track = display.getVideoTracks()[0];
+      meshRef.current?.replaceVideoTrack(track);
+      track.addEventListener('ended', () => {
+        meshRef.current?.replaceVideoTrack(rtcStream?.getVideoTracks()[0] || null);
+        setSharing(false);
+      });
+      setSharing(true);
+      realtimeRef.current?.sendAction('screen-share.changed', true);
+      onToast('Screen sharing started with a real display track.');
+    } catch (error) {
+      const reason = error?.code === 'display-unsupported' ? 'This browser cannot share a screen (getDisplayMedia missing).' : 'Screen share was cancelled or blocked.';
+      setShareError(reason);
+      onToast(reason);
+    }
+  };
 
   const handleEnhancement = async (feature) => {
     const next = { ...enhancement, [feature]: !enhancement[feature] };
     setEnhancement(next);
-    const sessionId = mediaSessionRef.current?.id || `media-local-int-2048`;
-    const result = await applyMediaEnhancement(sessionId, 'maya', next);
-    onToast(result.fallback?.length ? `Enhancement applied with browser fallback: ${result.fallback.join(', ')}.` : `Enhancement ${feature} ${next[feature] ? 'enabled' : 'disabled'}.`);
+    if (feature !== 'blur' && rtcStream) {
+      const applied = await applyTrackConstraints(rtcStream, next);
+      if (applied.fallback?.length) onToast('This browser could not apply audio constraints. Toggle is local-only.');
+    }
+    const sessionId = mediaSessionRef.current?.id || `media-local-${roomId}`;
+    await applyMediaEnhancement(sessionId, session?.principal?.id || 'local', next);
+    if (feature === 'blur') onToast('Blur is a local CSS preview, not SFU background replacement.');
   };
 
-  const handleWhiteboard = async () => {
-    const sessionId = mediaSessionRef.current?.id || `media-local-int-2048`;
-    const board = await createWhiteboardSession(sessionId);
-    setWhiteboard(board);
-    onToast('Collaborative whiteboard opened. Annotating is consent-gated and host-controlled.');
+  const handleWhiteboardStroke = (stroke) => {
+    setStrokes((items) => [...items.slice(-400), stroke]);
+    realtimeRef.current?.sendSignal('whiteboard.stroke', stroke);
   };
 
   const saveScorecard = async (summary) => {
+    if (!roomId) return;
     setSubmitting(true);
     try {
-      await onSaveScorecard({ criteria, ...summary, recommendation: recommendationFor(summary) });
+      await onSaveScorecard(roomId, { criteria, ...summary, recommendation: recommendationFor(summary) });
       onToast(summary.completeness === 100 ? 'Independent scorecard submitted and audit event recorded.' : 'Scorecard saved as a draft; required evidence remains.');
     } finally {
       setSubmitting(false);
     }
   };
 
-  const panels = {
-    copilot: <CopilotPanel queued={queued} onAction={handleCopilotAction} />,
-    transcript: <TranscriptPanel transcript={transcript} captions={captions} onToggleCaptions={() => setCaptions((value) => { const next = !value; realtimeRef.current?.sendAction('caption.changed', next); return next; })} />,
-    scorecard: <ScorecardPanel criteria={criteria} onScore={(id, score) => setCriteria((items) => items.map((criterion) => criterion.id === id ? { ...criterion, score } : criterion))} onSubmit={saveScorecard} submitting={submitting} />,
-    whiteboard: <WhiteboardPanel whiteboard={whiteboard} onOpen={handleWhiteboard} />,
+  const leaveRoom = () => {
+    stopAllMedia();
+    realtimeRef.current?.disconnect();
+    setLeft(true);
+    setMediaStatus({ state: 'ended', label: 'You left the room. Tracks stopped.' });
+    onToast('You left the room. Media tracks were stopped.');
   };
+
+  const addTranscript = () => {
+    const next = { id: Date.now(), speaker: session?.principal?.name || 'You', time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }), text: 'Let’s make the conflict-resolution rule concrete. Which version wins when two edits have the same timestamp?', tone: 'interviewer' };
+    setTranscript((items) => [...items, next]);
+    setQueued((items) => [...items, 'Conflict resolution']);
+    onToast('A local note was added. Live ASR is not wired.');
+  };
+
+  const refreshCopilot = async () => {
+    setCopilotBusy(true);
+    try {
+      const transcriptText = transcript.map((item) => item.text).join(' ');
+      const result = await platformApi.suggestGroundedFollowUp({
+        transcript: transcriptText,
+        uncovered: ['Accessibility mindset'],
+        consent: { aiProcessing: aiConsent },
+      });
+      setCopilot(result);
+      if (result.allowed === false) onToast('Consent is required before the copilot can run.');
+    } catch (reason) {
+      onToast(reason.message);
+    } finally {
+      setCopilotBusy(false);
+    }
+  };
+
+  const remoteEntries = Object.entries(remoteStreams);
+  const panels = {
+    copilot: <CopilotPanel queued={queued} suggestion={copilot} loading={copilotBusy} consent={aiConsent} onConsent={() => setAiConsent((value) => !value)} onRefresh={refreshCopilot} onQueue={(message) => { setQueued((items) => [...items, message]); onToast('Queued privately.'); }} />,
+    transcript: <TranscriptPanel transcript={transcript} captions={captions} onToggleCaptions={() => setCaptions((value) => { const next = !value; realtimeRef.current?.sendAction('caption.changed', next); return next; })} />,
+    scorecard: <ScorecardPanel candidateName={interviewLabel || 'Candidate'} criteria={criteria} onScore={(id, score) => setCriteria((items) => items.map((criterion) => criterion.id === id ? { ...criterion, score } : criterion))} onSubmit={saveScorecard} submitting={submitting} />,
+    whiteboard: <WhiteboardPanel strokes={strokes} onStroke={handleWhiteboardStroke} onClear={() => setStrokes([])} />,
+  };
+
+  if (!roomId) {
+    return <main className="page studio-page"><section className="surface-card consent-card"><span className="pill pill-amber">NO ROOM</span><h2>Select an interview or open an invitation</h2><p className="candidate-card-intro">Live Studio joins a real interview id. Create one as a recruiter, or enter from the candidate portal.</p></section></main>;
+  }
+
+  if (left) {
+    return <main className="page studio-page"><section className="surface-card consent-card"><h2>You left the room</h2><p className="candidate-card-intro">Camera and microphone tracks were stopped. Re-open the interview to join again.</p></section></main>;
+  }
 
   return (
     <main className="page studio-page">
+      <p className="sfu-honesty-banner" role="status">Media path: <b>browser peer-to-peer WebRTC</b>. LiveKit/mediasoup is <b>not</b> connected. Same-machine two-browser join works; remote NAT may need TURN later.</p>
       <section className="room-status-bar">
-        <div className="room-breadcrumb"><span className="live-session-badge"><i className="pulse-dot" /> LIVE</span><span>Senior Frontend Engineer</span><Icon name="chevronRight" size={14} /><b>Technical deep dive</b></div>
-        <div className="room-network"><span><i className="network-good" /><Icon name="wifi" size={15} /> Excellent · 34 ms</span><span className={`realtime-status realtime-${realtimeStatus.state}`}><i /><Icon name="activity" size={14} /> {realtimeStatus.label}{remotePeers.length ? ` · ${remotePeers.length} present` : ''}</span><span className={`realtime-status media-${mediaStatus.state}`}><i /><Icon name="video" size={14} /> {mediaStatus.label}</span><span><Icon name="lock" size={14} /> Encrypted</span><span><Icon name="clock" size={14} /> 32:14 remaining</span></div>
+        <div className="room-breadcrumb"><span className="live-session-badge"><i className="pulse-dot" /> LIVE</span><span>{interviewLabel || 'Interview'}</span><Icon name="chevronRight" size={14} /><b>{roomId}</b></div>
+        <div className="room-network"><span className={`realtime-status realtime-${realtimeStatus.state}`}><i /><Icon name="activity" size={14} /> {realtimeStatus.label}{remotePeers.length ? ` · ${remotePeers.length} present` : ''}</span><span className={`realtime-status media-${mediaStatus.state}`}><i /><Icon name="video" size={14} /> {mediaStatus.label}</span></div>
       </section>
 
       <section className="studio-layout">
         <div className="studio-main">
           <div className="video-stage">
-            {rtcStream ? <div className="video-tile is-rtc-preview"><video ref={rtcVideoRef} autoPlay playsInline muted aria-label="Your real camera preview" /><span className="video-role-label">You · real camera</span><button className="rtc-preview-close" onClick={disableRealCamera} aria-label="Disable real camera preview"><Icon name="videoOff" size={14} /></button></div> : <VideoTile participant={liveParticipants[0]} active cameraOn />}
-            <VideoTile participant={liveParticipants[1]} cameraOn={cameraOn} />
-            <div className="compact-video-grid"><VideoTile participant={liveParticipants[2]} compact cameraOn /></div>
-            <div className="stage-label"><Icon name="sparkles" size={15} /> AI assist is private to interviewers</div>
+            {rtcStream ? <LiveTile stream={rtcStream} label="You · local camera" muted blur={enhancement.blur} /> : <PlaceholderTile name={session?.principal?.name || 'You'} role="Enable camera to publish" />}
+            {remoteEntries[0] ? <LiveTile stream={remoteEntries[0][1]} label="Remote participant" /> : <PlaceholderTile name="Waiting for peer" role="Second browser joins the same interview id" />}
+            {remoteEntries[1] ? <div className="compact-video-grid"><LiveTile stream={remoteEntries[1][1]} label="Peer" compact /></div> : null}
+            <div className="stage-label"><Icon name="sparkles" size={15} /> AI assist is private · consent-gated copilot</div>
           </div>
           <div className="room-controls" aria-label="Video interview controls">
-            <button className={`room-control ${muted ? 'is-off' : ''}`} onClick={() => { const next = !muted; setMuted(next); realtimeRef.current?.sendAction('microphone.changed', next); onToast(muted ? 'Microphone enabled.' : 'Microphone muted.'); }} aria-label={muted ? 'Unmute microphone' : 'Mute microphone'}><Icon name={muted ? 'micOff' : 'mic'} size={20} /><span>{muted ? 'Unmute' : 'Mute'}</span></button>
-            <button className={`room-control ${!cameraOn ? 'is-off' : ''}`} onClick={() => { const next = !cameraOn; setCameraOn(next); realtimeRef.current?.sendAction('camera.changed', next); onToast(cameraOn ? 'Camera paused.' : 'Camera enabled.'); }} aria-label={cameraOn ? 'Turn camera off' : 'Turn camera on'}><Icon name={cameraOn ? 'video' : 'videoOff'} size={20} /><span>Camera</span></button>
-            <button className={`room-control ${shared ? 'is-active' : ''}`} onClick={() => { const next = !shared; setShared(next); realtimeRef.current?.sendAction('screen-share.changed', next); onToast(shared ? 'Screen sharing stopped.' : 'Screen sharing is visible to the room.'); }}><Icon name="monitor" size={20} /><span>Share</span></button>
-            <button className={`room-control ${rtcStream ? 'is-active' : ''}`} onClick={rtcStream ? disableRealCamera : enableRealCamera} aria-pressed={Boolean(rtcStream)} aria-label="Toggle real camera preview"><Icon name="video" size={20} /><span>{rtcStream ? 'Disable camera' : 'Enable camera'}</span></button>
+            <button className={`room-control ${muted ? 'is-off' : ''}`} onClick={() => { const next = !muted; setMuted(next); rtcStream?.getAudioTracks().forEach((track) => { track.enabled = !next; }); realtimeRef.current?.sendAction('microphone.changed', next); }} aria-label={muted ? 'Unmute microphone' : 'Mute microphone'}><Icon name={muted ? 'micOff' : 'mic'} size={20} /><span>{muted ? 'Unmute' : 'Mute'}</span></button>
+            <button className={`room-control ${!cameraOn ? 'is-off' : ''}`} onClick={() => { const next = !cameraOn; setCameraOn(next); rtcStream?.getVideoTracks().forEach((track) => { track.enabled = next; }); realtimeRef.current?.sendAction('camera.changed', next); }} aria-label={cameraOn ? 'Turn camera off' : 'Turn camera on'}><Icon name={cameraOn ? 'video' : 'videoOff'} size={20} /><span>Camera</span></button>
+            <button className={`room-control ${sharing ? 'is-active' : ''}`} onClick={handleShare} aria-pressed={sharing}><Icon name="monitor" size={20} /><span>Share</span></button>
+            <button className={`room-control ${rtcStream ? 'is-active' : ''}`} onClick={rtcStream ? disableRealCamera : enableRealCamera} aria-pressed={Boolean(rtcStream)} aria-label="Toggle real camera"><Icon name="video" size={20} /><span>{rtcStream ? 'Stop camera' : 'Enable camera'}</span></button>
             <button className="room-control" onClick={() => setActivePanel('transcript')}><Icon name="file" size={20} /><span>Transcript</span></button>
-            <button className={`room-control ${whiteboard ? 'is-active' : ''}`} onClick={handleWhiteboard}><Icon name="monitor" size={20} /><span>Whiteboard</span></button>
+            <button className={`room-control ${activePanel === 'whiteboard' ? 'is-active' : ''}`} onClick={() => { setActivePanel('whiteboard'); createWhiteboardSession(mediaSessionRef.current?.id || `media-local-${roomId}`); }}><Icon name="monitor" size={20} /><span>Whiteboard</span></button>
             <button className={`room-control ${enhancement.blur ? 'is-active' : ''}`} onClick={() => handleEnhancement('blur')} aria-pressed={enhancement.blur} aria-label="Toggle background blur"><Icon name="sparkles" size={20} /><span>Blur</span></button>
             <span className="control-divider" />
-            <button className="room-control danger" onClick={() => onToast('Leave confirmation opened. The room stays available for the rest of the panel.')}><Icon name="phoneOff" size={20} /><span>Leave</span></button>
+            <button className="room-control danger" onClick={leaveRoom}><Icon name="phoneOff" size={20} /><span>Leave</span></button>
           </div>
+          {shareError && <p className="microcopy" role="status">{shareError}</p>}
 
           <section className="code-workspace surface-card">
-            <div className="code-toolbar"><div className="code-tabs"><button className="code-tab is-active"><Icon name="code" size={16} /> reconcile.js <span>●</span></button><button className="code-tab"><Icon name="plus" size={15} /> Add file</button></div><div><span className="sync-state"><i /> Synced with Alex</span><button className="icon-button tiny" onClick={() => onToast('A fresh hidden test run has been queued.')} aria-label="Run private tests"><Icon name="play" size={16} /></button></div></div>
+            <div className="code-toolbar"><div className="code-tabs"><button className="code-tab is-active"><Icon name="code" size={16} /> reconcile.js <span>●</span></button></div><div><span className="sync-state"><i /> Local textarea — not Monaco/CRDT</span></div></div>
             <div className="code-editor-shell"><div className="line-numbers">1<br />2<br />3<br />4<br />5<br />6<br />7<br />8<br />9</div><textarea value={code} onChange={(event) => setCode(event.target.value)} aria-label="Collaborative code editor" spellCheck="false" /></div>
-            <div className="code-footer"><span><Icon name="check" size={15} /> 12 hidden checks ready</span><span>JavaScript · UTF-8 · Collaborative cursor enabled</span><button onClick={addTranscript}>Ask about this implementation <Icon name="arrowUpRight" size={14} /></button></div>
+            <div className="code-footer"><span><Icon name="check" size={15} /> Hidden tests are not an isolated sandbox</span><span>JavaScript · UTF-8</span><button onClick={addTranscript}>Ask about this implementation <Icon name="arrowUpRight" size={14} /></button></div>
           </section>
         </div>
 
