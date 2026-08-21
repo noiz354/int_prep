@@ -123,3 +123,8 @@ This implementation follows a performance- and user-centered approach:
 - **No fake production claims:** integrations and media/AI event flows use labeled mocks/adapters until a provider, credentials, and deployment environment are chosen.
 
 See [Architecture](docs/ARCHITECTURE.md), [API contract](docs/API.md), [Tech stack & feature map](docs/TECH-STACK.md), [Foundation Batch 01](docs/FOUNDATION-BATCH-01.md), [50% feature delivery](docs/BATCH-50-FEATURES.md), [100% feature delivery](docs/BATCH-100-FEATURES.md), and [implementation status](docs/IMPLEMENTATION-STATUS.md) for the production handoff.
+
+Coding-agent prompts:
+
+- [Finish stubs (Phases 0–5, done)](PROMPT-FINISH-STUBS-PHASED.md) — adapter boundaries only.
+- [User-usable production path (Phases U0–U7)](PROMPT-USER-USABLE-PRODUCTION.md) — wire providers + replace mocked UI so a human can actually complete journeys. Start at **Phase U0**.

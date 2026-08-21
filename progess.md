@@ -209,6 +209,12 @@ production-grade workflow skills from [addyosmani/agent-skills](https://github.c
 | `documentation-progress` | PRD/API/architecture/status hygiene |
 | `dependency-security` | Safe package, tool, MCP, and remote-skill evaluation |
 
+## Next coding-agent prompt (user-usable, not adapter-only)
+
+Phases 0–5 in `PROMPT-FINISH-STUBS-PHASED.md` are complete (tested boundaries; still in-memory / demo auth / deterministic AI / CSS media).
+
+To make features **actually usable by a person**, use **`PROMPT-USER-USABLE-PRODUCTION.md`** (AIPRM + PromptFlow style). Start at **Phase U0** (truth registry + human runbook). Do not re-run the stub-finish prompt.
+
 ## Production deployment backlog
 
 All PRD features have local foundation coverage. What remains is vendor-backed deployment and certification. Lightweight **local provider adapters** for every category below are available opt-in via `docker-compose.providers.yml` (profile-gated; see README and `docs/ARCHITECTURE.md`):
