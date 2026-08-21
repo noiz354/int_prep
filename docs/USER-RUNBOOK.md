@@ -13,9 +13,9 @@ Source of capability truth: `src/data/capabilityRegistry.js` (also `docs/CAPABIL
 | Journey | Today | After which phase |
 |---|---|---|
 | Open the polished UI, click around seeded dashboards | Yes — `npm run dev` | — |
-| Call the real local API (still in-memory, demo JWT) | Yes — `npm run start:usable` | U1 persists it |
-| Log in as yourself via Keycloak | No (compose identity exists, not wired) | U1 |
-| Keep interviews after restart | No | U1 |
+| Call the real local API with a sign-in gate | Yes — `npm run start:usable` | — |
+| Log in as yourself via Keycloak | Adapter ready; Docker IdP not running here | when Keycloak env is set |
+| Keep interviews after restart | Yes — file store | Mongo when `MONGO_URL` is set |
 | Two people in a real SFU room | No. RTC app = local camera loopback | U3 |
 | Ask a real LLM | No. Deterministic adapters | U4 |
 | Ready / Vault with your own durable data | Demo UI + optional in-memory APIs | U5 |
