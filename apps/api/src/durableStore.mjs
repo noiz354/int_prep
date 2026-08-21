@@ -70,6 +70,7 @@ export function createPersistence({ mode, filePath, seedInterviews = [] } = {}) 
     idempotency: loaded?.idempotency || {},
     revokedJti: loaded?.revokedJti || [],
     organizations: loaded?.organizations || [northstarOrganization],
+    product: loaded?.product || { schedules: [], invitations: [], notificationJobs: [] },
   };
 
   const persist = () => {
@@ -80,6 +81,7 @@ export function createPersistence({ mode, filePath, seedInterviews = [] } = {}) 
       idempotency: Object.fromEntries(idempotency),
       revokedJti: [...revokedJti],
       organizations: orgs,
+      product: productState,
     });
   };
 
@@ -103,6 +105,11 @@ export function createPersistence({ mode, filePath, seedInterviews = [] } = {}) 
 
   const revokedJti = new Set(state.revokedJti);
   const orgs = state.organizations;
+  const productState = {
+    schedules: state.product?.schedules || [],
+    invitations: state.product?.invitations || [],
+    notificationJobs: state.product?.notificationJobs || [],
+  };
 
   return {
     mode: resolvedMode,
@@ -130,6 +137,13 @@ export function createPersistence({ mode, filePath, seedInterviews = [] } = {}) 
       else orgs.push(org);
       persist();
       return org;
+    },
+    productState,
+    saveProduct(next) {
+      productState.schedules = next.schedules || [];
+      productState.invitations = next.invitations || [];
+      productState.notificationJobs = next.notificationJobs || [];
+      persist();
     },
   };
 }

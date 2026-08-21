@@ -227,3 +227,8 @@ em { font-style: normal; color: var(--violet); }
 .login-demo p { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
 .login-card small { color: var(--muted); font-size: 11px; }
 .empty-schedule { padding: 18px; color: var(--muted); font-size: 12px; }
+
+.interview-search { display: flex; align-items: center; gap: 10px; margin: 0 0 16px; padding: 10px 14px; }
+.interview-search input { flex: 1; border: 0; outline: 0; background: transparent; font-size: 13px; }
+.interview-search span { color: var(--muted); font-size: 11px; font-weight: 700; }
+.microcopy { color: var(--muted); font-size: 11px; line-height: 1.45; margin: 0 0 12px; }

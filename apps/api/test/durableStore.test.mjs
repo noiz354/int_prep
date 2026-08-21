@@ -6,6 +6,19 @@ import { join } from 'node:path';
 import { createPersistence } from '../src/durableStore.mjs';
 import { attachRevocationStore, issueSession, loginDemo, revokeSession, verifySession } from '../src/auth.mjs';
 
+test('product schedules persist beside interviews', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'sr-store-'));
+  const filePath = join(dir, 'store.json');
+  try {
+    const first = createPersistence({ mode: 'file', filePath });
+    first.saveProduct({ schedules: [{ id: 'sched-1', tenantId: 'northstar', interviewId: 'int-1', start: '2026-08-25T09:00:00.000Z' }], invitations: [], notificationJobs: [] });
+    const second = createPersistence({ mode: 'file', filePath });
+    assert.equal(second.productState.schedules[0].id, 'sched-1');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('file persistence keeps interviews after a store reload', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'sr-store-'));
   const filePath = join(dir, 'store.json');

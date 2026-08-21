@@ -1,5 +1,9 @@
+import { useEffect, useState } from 'react';
 import { Icon } from './Icon.jsx';
 import { metrics, upcomingInterviews, reliabilityServices } from '../data/platformData.js';
+import { isRemoteApiEnabled } from '../lib/session.js';
+import { platformApi } from '../lib/platformApi.js';
+import { presentInterview } from '../lib/interviewView.js';
 
 function AvatarStack({ people }) {
   return <div className="avatar-stack" aria-label={`${people.length} interviewers assigned`}>
@@ -18,15 +22,22 @@ function MetricCard({ metric }) {
   );
 }
 
-export function Dashboard({ onNavigate, onToast, principal }) {
+export function Dashboard({ onNavigate, onToast, principal, refreshTick = 0, onCreate }) {
   const [ownInterviews, setOwnInterviews] = useState(null);
   useEffect(() => {
     if (!isRemoteApiEnabled()) return;
-    platformApi.getInterviews().then(setOwnInterviews).catch(() => setOwnInterviews([]));
-  }, []);
+    platformApi.getInterviews().then((list) => setOwnInterviews(Array.isArray(list) ? list.map(presentInterview) : [])).catch(() => setOwnInterviews([]));
+  }, [refreshTick]);
   const apiMode = isRemoteApiEnabled();
   const greetingName = principal?.name || 'there';
   const schedule = apiMode ? (ownInterviews || []) : upcomingInterviews;
+  const liveMetrics = apiMode ? [
+    { label: 'Interviews in your tenant', value: String(schedule.length), trend: 'live', tone: 'violet', note: 'not a seeded weekly count' },
+    { label: 'Drafts', value: String(schedule.filter((item) => item.status === 'draft').length), trend: 'live', tone: 'amber', note: 'awaiting schedule' },
+    { label: 'Scheduled / live', value: String(schedule.filter((item) => ['scheduled', 'live', 'checked_in'].includes(item.status)).length), trend: 'live', tone: 'mint', note: 'from the durable store' },
+    { label: 'Join success rate', value: '—', trend: 'n/a', tone: 'sky', note: 'needs real SFU (U3)' },
+  ] : metrics;
+  const next = schedule[0];
   return (
     <main className="page dashboard-page">
       <section className="welcome-card">
@@ -35,8 +46,8 @@ export function Dashboard({ onNavigate, onToast, principal }) {
           <h2>Hello, {greetingName}.<br /><em>{apiMode ? 'This list is yours — not a seeded Maya day.' : 'Run interviews with more signal.'}</em></h2>
           <p>{apiMode ? (ownInterviews === null ? 'Loading your interviews…' : ownInterviews.length ? `${ownInterviews.length} interview${ownInterviews.length === 1 ? '' : 's'} in your tenant.` : 'No interviews yet. Create one — it will survive API restart.') : 'Four conversations are planned for today. Your next interview begins at 09:30 with Alex Morgan.'}</p>
           <div className="welcome-actions">
-            <button className="button button-light" onClick={() => onNavigate('studio')}><Icon name="video" size={18} /> Open live studio</button>
-            <button className="button button-ghost-on-dark" onClick={() => onNavigate('interviews')}>View today <Icon name="arrowUpRight" size={16} /></button>
+            <button className="button button-light" onClick={() => onCreate?.() || onNavigate('interviews')}><Icon name="plus" size={18} /> Schedule interview</button>
+            <button className="button button-ghost-on-dark" onClick={() => onNavigate('interviews')}>View calendar <Icon name="arrowUpRight" size={16} /></button>
           </div>
         </div>
         <div className="welcome-visual" aria-hidden="true">
@@ -48,7 +59,7 @@ export function Dashboard({ onNavigate, onToast, principal }) {
       </section>
 
       <section className="metrics-grid" aria-label="Interview performance metrics">
-        {metrics.map((metric) => <MetricCard metric={metric} key={metric.label} />)}
+        {liveMetrics.map((metric) => <MetricCard metric={metric} key={metric.label} />)}
       </section>
 
       <section className="dashboard-grid">
@@ -78,14 +89,20 @@ export function Dashboard({ onNavigate, onToast, principal }) {
 
         <div className="side-column">
           <article className="surface-card insight-card">
-            <div className="surface-header compact"><div><span className="section-kicker">AI BRIEFING</span><h2>Before Alex joins</h2></div><button className="icon-button tiny" onClick={() => onNavigate('intelligence')} aria-label="Open AI intelligence"><Icon name="arrowUpRight" size={17} /></button></div>
-            <div className="briefing-profile"><span className="briefing-avatar">AM</span><div><strong>Alex Morgan</strong><p>Senior Frontend Engineer</p></div><span className="fit-pill"><Icon name="sparkles" size={14} /> 89% role fit</span></div>
-            <div className="briefing-points">
-              <p><Icon name="target" size={16} /><span><b>Probe for:</b> collaboration at scale and accessibility systems.</span></p>
-              <p><Icon name="file" size={16} /><span><b>Evidence:</b> led a design-system migration for 42 product teams.</span></p>
-              <p><Icon name="clock" size={16} /><span><b>Plan:</b> 45 minutes · 4 weighted competencies.</span></p>
-            </div>
-            <button className="button button-secondary full" onClick={() => onNavigate('studio')}><Icon name="sparkles" size={17} /> Review interview plan</button>
+            <div className="surface-header compact"><div><span className="section-kicker">NEXT SESSION</span><h2>{next ? next.candidate : 'Nothing queued'}</h2></div><button className="icon-button tiny" onClick={() => onNavigate('intelligence')} aria-label="Open AI intelligence"><Icon name="arrowUpRight" size={17} /></button></div>
+            {next ? (
+              <>
+                <div className="briefing-profile"><span className="briefing-avatar">{next.avatar}</span><div><strong>{next.candidate}</strong><p>{next.role}</p></div></div>
+                <div className="briefing-points">
+                  <p><Icon name="target" size={16} /><span><b>Stage:</b> {next.stage}</span></p>
+                  <p><Icon name="clock" size={16} /><span><b>When:</b> {next.time} · {next.status}</span></p>
+                  <p><Icon name="file" size={16} /><span><b>AI briefing</b> stays assistive and is not a hiring prediction.</span></p>
+                </div>
+                <button className="button button-secondary full" onClick={() => onNavigate('studio')}><Icon name="sparkles" size={17} /> Open room</button>
+              </>
+            ) : (
+              <p className="empty-schedule">Create an interview to see it here. Seeded “Alex Morgan” copy is not used when the API is on.</p>
+            )}
           </article>
 
           <article className="surface-card health-card">

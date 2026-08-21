@@ -18,6 +18,7 @@ import { platformApi } from './lib/platformApi.js';
 import { clientEventBus } from './lib/eventBus.js';
 import { LoginGate } from './components/LoginGate.jsx';
 import { getSession, isRemoteApiEnabled, logoutSession } from './lib/session.js';
+import { localDateTimeToIso, localDateTimeValue } from './lib/interviewView.js';
 
 const commandItems = [
   { id: 'overview', label: 'Go to overview', icon: 'grid', group: 'Navigate' },
@@ -51,8 +52,22 @@ function CommandPalette({ open, onClose, onNavigate, onCreate }) {
 
 function InterviewComposer({ open, onClose, onComplete }) {
   const [stage, setStage] = useState('Technical deep dive');
+  const [candidateName, setCandidateName] = useState('New candidate');
+  const [role, setRole] = useState('Senior Frontend Engineer');
+  const [when, setWhen] = useState(localDateTimeValue());
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [busy, setBusy] = useState(false);
   if (!open) return null;
-  return <div className="modal-layer" role="presentation" onMouseDown={onClose}><div className="composer-modal" role="dialog" aria-modal="true" aria-labelledby="composer-title" onMouseDown={(event) => event.stopPropagation()}><div className="modal-heading"><div><span className="section-kicker">NEW INTERVIEW</span><h2 id="composer-title">Create a structured session</h2></div><button className="icon-button" onClick={onClose} aria-label="Close interview composer"><Icon name="x" size={20} /></button></div><div className="composer-steps"><span className="is-current">1<span>Details</span></span><i /><span>2<span>Panel</span></span><i /><span>3<span>Review</span></span></div><label className="form-field"><span>Candidate</span><input defaultValue="New candidate" aria-label="Candidate name" /></label><label className="form-field"><span>Role</span><input defaultValue="Senior Frontend Engineer" aria-label="Role" /></label><label className="form-field"><span>Interview stage</span><select value={stage} onChange={(event) => setStage(event.target.value)} aria-label="Interview stage"><option>Technical deep dive</option><option>Systems design</option><option>Leadership conversation</option><option>Portfolio review</option></select></label><div className="composer-notice"><Icon name="sparkles" size={16} /><span>An approved rubric and privacy notice will be attached automatically based on the selected role.</span></div><div className="modal-actions"><button className="button button-secondary" onClick={onClose}>Cancel</button><button className="button button-primary" onClick={() => { onComplete(stage); onClose(); }}><Icon name="calendar" size={17} /> Continue to panel</button></div></div></div>;
+  const submit = async () => {
+    setBusy(true);
+    try {
+      await onComplete({ candidateName, role, stage, scheduledAt: localDateTimeToIso(when), inviteEmail });
+      onClose();
+    } finally {
+      setBusy(false);
+    }
+  };
+  return <div className="modal-layer" role="presentation" onMouseDown={onClose}><div className="composer-modal" role="dialog" aria-modal="true" aria-labelledby="composer-title" onMouseDown={(event) => event.stopPropagation()}><div className="modal-heading"><div><span className="section-kicker">NEW INTERVIEW</span><h2 id="composer-title">Create a structured session</h2></div><button className="icon-button" onClick={onClose} aria-label="Close interview composer"><Icon name="x" size={20} /></button></div><label className="form-field"><span>Candidate</span><input value={candidateName} onChange={(event) => setCandidateName(event.target.value)} aria-label="Candidate name" /></label><label className="form-field"><span>Role</span><input value={role} onChange={(event) => setRole(event.target.value)} aria-label="Role" /></label><label className="form-field"><span>Interview stage</span><select value={stage} onChange={(event) => setStage(event.target.value)} aria-label="Interview stage"><option>Technical deep dive</option><option>Systems design</option><option>Leadership conversation</option><option>Portfolio review</option></select></label><label className="form-field"><span>Start</span><input type="datetime-local" value={when} onChange={(event) => setWhen(event.target.value)} aria-label="Interview start" /></label><label className="form-field"><span>Invitation email (optional)</span><input type="email" value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} placeholder="candidate@example.test" aria-label="Invitation email" /></label><div className="composer-notice"><Icon name="sparkles" size={16} /><span>This writes your tenant store. Email delivery remains a labelled adapter until a mail provider is wired.</span></div><div className="modal-actions"><button className="button button-secondary" onClick={onClose}>Cancel</button><button className="button button-primary" disabled={busy} onClick={submit}><Icon name="calendar" size={17} /> {busy ? 'Saving…' : 'Create & persist'}</button></div></div></div>;
 }
 
 export default function App() {
@@ -63,6 +78,7 @@ export default function App() {
   const [composerOpen, setComposerOpen] = useState(false);
   const [toast, setToast] = useState('');
   const [session, setSession] = useState(() => getSession());
+  const [interviewTick, setInterviewTick] = useState(0);
 
   const notify = (message) => {
     setToast(message);
@@ -92,7 +108,7 @@ export default function App() {
   const screen = useMemo(() => {
     const common = { onNavigate: navigate, onToast: notify };
     switch (activeScreen) {
-      case 'interviews': return <Interviews {...common} />;
+      case 'interviews': return <Interviews {...common} onCreate={() => setComposerOpen(true)} refreshTick={interviewTick} />;
       case 'candidate': return <CandidatePortal onToast={notify} />;
       case 'studio': return <LiveStudio onToast={notify} onSaveScorecard={saveScorecard} />;
       case 'intelligence': return <Intelligence onToast={notify} />;
@@ -103,9 +119,9 @@ export default function App() {
       case 'completion': return <CompletionHub onToast={notify} />;
       case 'integrations': return <Integrations onToast={notify} />;
       case 'features': return <FeatureCatalog onToast={notify} />;
-      default: return <Dashboard {...common} principal={session?.principal} />;
+      default: return <Dashboard {...common} principal={session?.principal} refreshTick={interviewTick} onCreate={() => setComposerOpen(true)} />;
     }
-  }, [activeScreen, session]);
+  }, [activeScreen, session, interviewTick]);
 
   if (isRemoteApiEnabled() && !session) {
     return <LoginGate onSignedIn={setSession} />;

@@ -50,7 +50,13 @@ const io = new SocketIOServer(httpServer, {
 const repository = persistence.interviews;
 const platform = createPlatformServices({ events });
 const completion = createCompletionServices({ platform });
-const product = createProductServices({ events, repository, tenantId });
+const product = createProductServices({
+  events,
+  repository,
+  tenantId,
+  initial: persistence.productState,
+  persist: (next) => persistence.saveProduct(next),
+});
 const media = createMediaServices({ events, tenantId });
 const dataPlatform = createDataPlatformServices({ events, tenantId });
 const aiServices = createAiServices({ events, platform, tenantId, ollamaUrl: process.env.OLLAMA_URL });

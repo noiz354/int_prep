@@ -22,7 +22,7 @@
 
 | Audit ID | File(s) | Current behavior | Classification | Required replacement |
 |---|---|---|---|---|
-| FE-M-01 | `src/data/platformData.js` | Hard-coded current user, metrics, schedule, participants, transcript, copilot, reliability, integrations, scorecard, candidate tasks | Mocked frontend | Query authenticated API/analytics/search/media services; use loading/error/empty states |
+| FE-M-01 | `src/data/platformData.js` | **U2:** Dashboard/Interviews use the API when `VITE_USE_API=true` (empty/loading/error). Seed remains only for local demo mode. Live Studio/Intelligence/Integrations still seeded. | Partial | Remaining screens in U3–U6 |
 | FE-M-02 | `src/data/foundationData.js` | Fixed workflows, requisitions, jobs, schemas, quality, flags, SLOs, analytics, policy, model data | Mocked frontend fallback | Remove as default source; use real control-plane API and persisted data |
 | FE-M-03 | `src/data/completionData.js` | Fixed catalog of final 50 provider-ready actions | Mocked frontend fallback | Replace with actual provider capability/configuration registry and deployment status |
 | FE-M-04 | `src/lib/platformApi.js` | `VITE_USE_API` defaults to local fallback; many actions fabricate local IDs/results after delays | Local adapter | Make real API the normal path; preserve a clearly labelled dev fixture mode only |

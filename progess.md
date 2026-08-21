@@ -221,7 +221,9 @@ Phases 0–5 in `PROMPT-FINISH-STUBS-PHASED.md` are complete (tested boundaries;
 
 **Phase U0 complete.** **Phase U1 complete (self-hosted path without Docker):** file persistence, LoginGate (no auto Maya), OIDC adapter (503 until Keycloak env is set), JWT logout/revoke. Mongo/Keycloak not running in this environment.
 
-Next: **Phase U2** (kill seeded recruiter screens) after approval. Do not skip.
+**Phase U2 complete:** Dashboard/Interviews/composer/Control Center use the API when enabled; schedules and invitations persist in the file store.
+
+Next: **Phase U3** (candidate portal + joinable media) after approval.
 
 ## Production deployment backlog
 

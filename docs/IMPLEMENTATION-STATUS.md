@@ -27,6 +27,10 @@ Docker was unavailable, so U1 wired a **file-backed durable store** and an **OID
 | Dashboard | API mode shows the signed-in principal and **their** interviews (empty by default) |
 | Ready / Vault APIs | Bearer JWT first; development headers only if `ALLOW_DEV_HEADERS` is not `false` |
 
+## Phase U2 — recruiter product uses the API
+
+When `VITE_USE_API=true`, Dashboard and Interviews no longer treat `platformData.js` as the source of truth. Creating an interview writes the durable store, optional schedule + invitation, and the list reloads. Control Center lifecycle/artifact actions target the selected live interview. Calendar/email remain labelled adapters.
+
 ## Candidate Readiness & Coaching — separate bounded context
 
 The candidate-owned preparation product ("SignalRoom Ready") is scaffolded as its own

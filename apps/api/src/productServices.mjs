@@ -43,11 +43,12 @@ function createInvitationToken() {
   return `inv_${randomUUID().replaceAll('-', '')}${randomUUID().replaceAll('-', '')}`;
 }
 
-export function createProductServices({ events, repository, tenantId = 'northstar' }) {
-  const schedules = [];
+export function createProductServices({ events, repository, tenantId = 'northstar', initial = {}, persist } = {}) {
+  const schedules = [...(initial.schedules || [])];
   const calendarSyncs = [];
-  const invitations = [];
-  const notificationJobs = [];
+  const invitations = [...(initial.invitations || [])];
+  const notificationJobs = [...(initial.notificationJobs || [])];
+  const save = () => persist?.({ schedules, invitations, notificationJobs });
   const panels = [
     { id: 'panel-ada', name: 'Ada Reviewer', roles: ['interviewer'], timeZone: 'Asia/Singapore', calendarUrl: 'mock://calendar/ada' },
     { id: 'panel-ben', name: 'Ben Ops', roles: ['interviewer'], timeZone: 'Asia/Singapore', calendarUrl: 'mock://calendar/ben' },
@@ -102,6 +103,7 @@ export function createProductServices({ events, repository, tenantId = 'northsta
       createdAt: now(),
     };
     schedules.push(schedule);
+    save();
     publish('schedule.confirmed', { interviewId, scheduleId: schedule.id, start: schedule.start }, { idempotencyKey });
     return schedule;
   }
@@ -161,6 +163,7 @@ export function createProductServices({ events, repository, tenantId = 'northsta
       localizedSubject: locale === 'id' ? 'Undangan wawancara SignalRoom' : 'SignalRoom interview invitation',
     };
     invitations.push(invitation);
+    save();
     publish('invitation.created', { interviewId, invitationId: invitation.id, recipient, channel, locale }, { idempotencyKey: `invite:${interviewId}:${recipient}` });
     return invitation;
   }
@@ -231,6 +234,7 @@ export function createProductServices({ events, repository, tenantId = 'northsta
       deliveredAt: null,
     };
     notificationJobs.push(job);
+    save();
     publish('notification.job.created', { recipient, channel, template, notificationId: job.id });
     return job;
   }

@@ -174,4 +174,63 @@ export const platformApi = {
     await wait(100);
     return clientEventBus.publish(`interview.room.${action}`, { interviewId, ...metadata });
   },
+
+  async createInterview(payload) {
+    if (useApi) {
+      return (await apiRequest('/api/interviews', {
+        method: 'POST',
+        headers: { 'Idempotency-Key': `interview-${crypto.randomUUID()}` },
+        body: JSON.stringify(payload),
+      })).data;
+    }
+    await wait(80);
+    return { id: localId('int'), status: 'draft', ...payload };
+  },
+
+  async createSchedule(payload) {
+    if (useApi) {
+      return (await apiRequest('/api/schedules', {
+        method: 'POST',
+        headers: { 'Idempotency-Key': `schedule-${crypto.randomUUID()}` },
+        body: JSON.stringify(payload),
+      })).data;
+    }
+    await wait(80);
+    return { id: localId('sched'), status: 'confirmed', ...payload };
+  },
+
+  async listSchedules() {
+    if (useApi) return (await apiRequest('/api/schedules')).data;
+    return [];
+  },
+
+  async createInvitation(payload) {
+    if (useApi) {
+      return (await apiRequest('/api/invitations', {
+        method: 'POST',
+        headers: { 'Idempotency-Key': `invite-${crypto.randomUUID()}` },
+        body: JSON.stringify(payload),
+      })).data;
+    }
+    await wait(80);
+    return { id: localId('inv'), token: localId('tok'), ...payload };
+  },
+
+  async search(query) {
+    if (useApi) return (await apiRequest('/api/search', { method: 'POST', body: JSON.stringify({ query, scope: ['interviews'] }) })).data;
+    await wait(60);
+    return { results: upcomingInterviews.filter((item) => `${item.candidate} ${item.role}`.toLowerCase().includes(String(query).toLowerCase())).map((item) => ({ type: 'interview', id: item.id, label: item.candidate })) };
+  },
+
+  async notify(payload) {
+    if (useApi) {
+      return (await apiRequest('/api/notifications', {
+        method: 'POST',
+        headers: { 'Idempotency-Key': `notify-${crypto.randomUUID()}` },
+        body: JSON.stringify(payload),
+      })).data;
+    }
+    await wait(60);
+    return { id: localId('notif'), status: 'queued', ...payload };
+  },
 };
