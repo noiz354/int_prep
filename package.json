@@ -19,6 +19,7 @@
     "candidate:readiness:web:build": "npm --prefix apps/candidate-readiness-web run build",
     "candidate:readiness:api": "npm --prefix services/candidate-readiness-api run dev",
     "candidate:readiness:domain:test": "npm --prefix packages/candidate-readiness-domain run test",
+    "career:vault:web": "npm --prefix apps/career-vault-web run dev",
     "career:vault:web:build": "npm --prefix apps/career-vault-web run build",
     "career:vault:api": "npm --prefix services/career-vault-api run dev",
     "career:vault:domain:test": "npm --prefix packages/career-vault-domain run test",
