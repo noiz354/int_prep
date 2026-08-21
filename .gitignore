@@ -10,3 +10,7 @@ __pycache__/
 *:Zone.Identifier
 # Dev-only MongoDB encryption keyfile (regenerate locally; never commit).
 scripts/mocks/mongodb-keyfile/keyfile
+# Command Code session state (tool history, not project content).
+.commandcode/settings.json
+# User task working directory.
+21-8-26-tasks/
