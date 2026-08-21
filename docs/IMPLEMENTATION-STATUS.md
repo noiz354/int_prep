@@ -14,6 +14,19 @@ A single schema in `src/data/capabilityRegistry.js` is the source of truth for F
 
 **User-usable count: 0.** Human boot path: `npm run start:usable` and `docs/USER-RUNBOOK.md`.
 
+## Phase U1 — identity + persistence + session
+
+Docker was unavailable, so U1 wired a **file-backed durable store** and an **OIDC adapter** rather than live Keycloak/Mongo.
+
+| Item | Result |
+|---|---|
+| Auto demo-login | Removed. `LoginGate` + labelled demo buttons (`ALLOW_DEMO_LOGIN`) |
+| OIDC | `/api/auth/oidc/start` + `/callback`; 503 until `KEYCLOAK_URL` + `OIDC_CLIENT_ID` |
+| Logout | `POST /api/auth/logout` revokes JWT `jti` |
+| Persistence | `data/signalroom-store.json` — interviews, audit, idempotency, orgs, revoked tokens |
+| Dashboard | API mode shows the signed-in principal and **their** interviews (empty by default) |
+| Ready / Vault APIs | Bearer JWT first; development headers only if `ALLOW_DEV_HEADERS` is not `false` |
+
 ## Candidate Readiness & Coaching — separate bounded context
 
 The candidate-owned preparation product ("SignalRoom Ready") is scaffolded as its own

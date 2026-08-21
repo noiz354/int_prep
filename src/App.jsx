@@ -16,6 +16,8 @@ import { FeatureCatalog } from './components/FeatureCatalog.jsx';
 import { Icon } from './components/Icon.jsx';
 import { platformApi } from './lib/platformApi.js';
 import { clientEventBus } from './lib/eventBus.js';
+import { LoginGate } from './components/LoginGate.jsx';
+import { getSession, isRemoteApiEnabled, logoutSession } from './lib/session.js';
 
 const commandItems = [
   { id: 'overview', label: 'Go to overview', icon: 'grid', group: 'Navigate' },
@@ -60,6 +62,7 @@ export default function App() {
   const [commandOpen, setCommandOpen] = useState(false);
   const [composerOpen, setComposerOpen] = useState(false);
   const [toast, setToast] = useState('');
+  const [session, setSession] = useState(() => getSession());
 
   const notify = (message) => {
     setToast(message);
@@ -100,9 +103,18 @@ export default function App() {
       case 'completion': return <CompletionHub onToast={notify} />;
       case 'integrations': return <Integrations onToast={notify} />;
       case 'features': return <FeatureCatalog onToast={notify} />;
-      default: return <Dashboard {...common} />;
+      default: return <Dashboard {...common} principal={session?.principal} />;
     }
-  }, [activeScreen]);
+  }, [activeScreen, session]);
 
-  return <div className="app-shell"><Sidebar activeScreen={activeScreen} onNavigate={navigate} isOpen={menuOpen} onClose={() => setMenuOpen(false)} /><div className="app-content"><Topbar activeScreen={activeScreen} darkMode={darkMode} onToggleTheme={() => setDarkMode((value) => !value)} onOpenMenu={() => setMenuOpen(true)} onOpenCommand={() => setCommandOpen(true)} onCreateInterview={() => setComposerOpen(true)} />{screen}</div><CommandPalette open={commandOpen} onClose={() => setCommandOpen(false)} onNavigate={navigate} onCreate={() => setComposerOpen(true)} /><InterviewComposer open={composerOpen} onClose={() => setComposerOpen(false)} onComplete={(stage) => notify(`${stage} draft created. Add panelists to finish scheduling.`)} /><Toast message={toast} onDismiss={() => setToast('')} /></div>;
+  if (isRemoteApiEnabled() && !session) {
+    return <LoginGate onSignedIn={setSession} />;
+  }
+
+  const signOut = async () => {
+    await logoutSession();
+    setSession(null);
+  };
+
+  return <div className="app-shell"><Sidebar activeScreen={activeScreen} onNavigate={navigate} isOpen={menuOpen} onClose={() => setMenuOpen(false)} /><div className="app-content"><Topbar activeScreen={activeScreen} darkMode={darkMode} principal={session?.principal} onLogout={signOut} onToggleTheme={() => setDarkMode((value) => !value)} onOpenMenu={() => setMenuOpen(true)} onOpenCommand={() => setCommandOpen(true)} onCreateInterview={() => setComposerOpen(true)} />{screen}</div><CommandPalette open={commandOpen} onClose={() => setCommandOpen(false)} onNavigate={navigate} onCreate={() => setComposerOpen(true)} /><InterviewComposer open={composerOpen} onClose={() => setComposerOpen(false)} onComplete={(stage) => notify(`${stage} draft created. Add panelists to finish scheduling.`)} /><Toast message={toast} onDismiss={() => setToast('')} /></div>;
 }

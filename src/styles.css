@@ -218,3 +218,12 @@ em { font-style: normal; color: var(--violet); }
   .implementation-tag { display: inline-flex; }
   .capability-truth-bar { align-items: start; flex-direction: column; }
 }
+.login-gate { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: var(--bg, #f4f6fb); }
+.login-card { width: min(460px, 100%); display: grid; gap: 12px; padding: 28px; }
+.login-card h1 { margin: 0; font-size: 26px; letter-spacing: -.05em; }
+.login-card p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.login-error { color: #b54850 !important; }
+.login-demo { display: grid; gap: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+.login-demo p { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.login-card small { color: var(--muted); font-size: 11px; }
+.empty-schedule { padding: 18px; color: var(--muted); font-size: 12px; }

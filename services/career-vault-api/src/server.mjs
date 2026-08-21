@@ -4,6 +4,7 @@ import { createCareerVaultService } from '../../../packages/career-vault-domain/
 import { createRagService } from '../../../packages/career-vault-domain/src/ragService.mjs';
 import { assertCandidatePrivateDefault, assertCareerPlanningContext } from '../../../packages/career-vault-domain/src/policies.mjs';
 import { hashTenant, inSpan, recordRagAbstention, requestLogger, startTelemetry } from '../../../packages/observability/src/telemetry.mjs';
+import { requireBearerOrDevHeaders } from '../../../apps/api/src/auth.mjs';
 
 await startTelemetry({ serviceName: process.env.OTEL_SERVICE_NAME || 'career-vault-api' });
 

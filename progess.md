@@ -219,9 +219,9 @@ production-grade workflow skills from [addyosmani/agent-skills](https://github.c
 
 Phases 0–5 in `PROMPT-FINISH-STUBS-PHASED.md` are complete (tested boundaries; still in-memory / demo auth / deterministic AI / CSS media).
 
-**Phase U0 is complete:** `src/data/capabilityRegistry.js`, Feature Catalog / Control Center / Enterprise Scale / Ready / Vault consume it, `docs/USER-RUNBOOK.md`, `npm run start:usable`.
+**Phase U0 complete.** **Phase U1 complete (self-hosted path without Docker):** file persistence, LoginGate (no auto Maya), OIDC adapter (503 until Keycloak env is set), JWT logout/revoke. Mongo/Keycloak not running in this environment.
 
-Next: **Phase U1** in `PROMPT-USER-USABLE-PRODUCTION.md` (Keycloak + Mongo + session). Do not skip to later phases.
+Next: **Phase U2** (kill seeded recruiter screens) after approval. Do not skip.
 
 ## Production deployment backlog
 

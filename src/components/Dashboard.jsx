@@ -18,14 +18,22 @@ function MetricCard({ metric }) {
   );
 }
 
-export function Dashboard({ onNavigate, onToast }) {
+export function Dashboard({ onNavigate, onToast, principal }) {
+  const [ownInterviews, setOwnInterviews] = useState(null);
+  useEffect(() => {
+    if (!isRemoteApiEnabled()) return;
+    platformApi.getInterviews().then(setOwnInterviews).catch(() => setOwnInterviews([]));
+  }, []);
+  const apiMode = isRemoteApiEnabled();
+  const greetingName = principal?.name || 'there';
+  const schedule = apiMode ? (ownInterviews || []) : upcomingInterviews;
   return (
     <main className="page dashboard-page">
       <section className="welcome-card">
         <div className="welcome-content">
-          <span className="pill pill-on-dark"><span className="pulse-dot" /> LIVE OPERATIONS</span>
-          <h2>Good morning, Maya.<br /><em>Run interviews with more signal.</em></h2>
-          <p>Four conversations are planned for today. Your next interview begins at 09:30 with Alex Morgan.</p>
+          <span className="pill pill-on-dark"><span className="pulse-dot" /> {apiMode ? 'YOUR WORKSPACE' : 'LIVE OPERATIONS'}</span>
+          <h2>Hello, {greetingName}.<br /><em>{apiMode ? 'This list is yours — not a seeded Maya day.' : 'Run interviews with more signal.'}</em></h2>
+          <p>{apiMode ? (ownInterviews === null ? 'Loading your interviews…' : ownInterviews.length ? `${ownInterviews.length} interview${ownInterviews.length === 1 ? '' : 's'} in your tenant.` : 'No interviews yet. Create one — it will survive API restart.') : 'Four conversations are planned for today. Your next interview begins at 09:30 with Alex Morgan.'}</p>
           <div className="welcome-actions">
             <button className="button button-light" onClick={() => onNavigate('studio')}><Icon name="video" size={18} /> Open live studio</button>
             <button className="button button-ghost-on-dark" onClick={() => onNavigate('interviews')}>View today <Icon name="arrowUpRight" size={16} /></button>
@@ -50,17 +58,21 @@ export function Dashboard({ onNavigate, onToast }) {
             <button className="text-button" onClick={() => onNavigate('interviews')}>View calendar <Icon name="arrowUpRight" size={15} /></button>
           </div>
           <div className="schedule-list">
-            {upcomingInterviews.map((interview, index) => (
-              <button className="schedule-item" key={interview.id} onClick={() => index === 0 ? onNavigate('studio') : onToast(`${interview.candidate}'s workspace is ready to review.`)}>
-                <time><strong>{interview.time}</strong><span>{interview.endTime}</span></time>
-                <span className={`schedule-line line-${interview.tone}`}><i /></span>
-                <span className={`person-avatar person-${interview.tone}`}>{interview.avatar}</span>
-                <span className="schedule-detail"><strong>{interview.candidate}</strong><span>{interview.role} · {interview.stage}</span></span>
-                <AvatarStack people={interview.interviewers} />
-                <span className={`status-chip status-${interview.tone}`}>{index === 0 && <i className="tiny-live-dot" />}{interview.status}</span>
+            {schedule.length === 0 && <p className="empty-schedule">{apiMode ? 'Empty on purpose. Create an interview to persist it.' : 'No interviews.'}</p>}
+            {schedule.map((interview, index) => {
+              const candidate = interview.candidate || interview.candidateName;
+              const time = interview.time || (interview.scheduledAt ? String(interview.scheduledAt).slice(11, 16) : '--:--');
+              return (
+              <button className="schedule-item" key={interview.id} onClick={() => index === 0 ? onNavigate('studio') : onToast(`${candidate}'s workspace is ready to review.`)}>
+                <time><strong>{time}</strong><span>{interview.endTime || interview.status}</span></time>
+                <span className={`schedule-line line-${interview.tone || 'mint'}`}><i /></span>
+                <span className={`person-avatar person-${interview.tone || 'mint'}`}>{interview.avatar || (candidate || '?').slice(0, 2).toUpperCase()}</span>
+                <span className="schedule-detail"><strong>{candidate}</strong><span>{interview.role} · {interview.stage}</span></span>
+                <AvatarStack people={interview.interviewers || ['You']} />
+                <span className={`status-chip status-${interview.tone || 'mint'}`}>{index === 0 && <i className="tiny-live-dot" />}{interview.status}</span>
                 <Icon name="chevronRight" size={18} className="schedule-arrow" />
               </button>
-            ))}
+            ); })}
           </div>
         </article>
 

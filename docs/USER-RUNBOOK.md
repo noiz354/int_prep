@@ -1,8 +1,8 @@
 # User runbook — local usable path
 
 > **Audience:** a human who wants to click through SignalRoom, Ready, Vault, or the RTC room.  
-> **Honesty:** this is **not** production. Demo login still auto-seeds Maya. Data dies when the API process stops. Video in Live Studio is mostly CSS tiles.  
-> **Next phase:** U1 replaces demo login and in-memory persistence.
+> **Honesty:** this is **not** production. Sign-in is explicit (labelled demo or OIDC). Interviews persist in `data/signalroom-store.json`. Video in Live Studio is mostly CSS tiles.  
+> **Next phase:** U2 replaces remaining seeded recruiter screens.
 
 Source of capability truth: `src/data/capabilityRegistry.js` (also `docs/CAPABILITY-REGISTRY.md`).
 
@@ -52,7 +52,12 @@ This starts:
 
 Open the Vite URL printed in the terminal (hosted previews use the platform hostname, not localhost).
 
-**Login today:** the app still bootstraps the seeded Maya demo identity (`/api/auth/demo-login`). That is labelled development auth. Do not treat it as SSO.
+**Login (Phase U1):** with `VITE_USE_API=true` the UI **does not** auto-login Maya. You see a sign-in gate.
+
+- **OIDC / Keycloak** — button enabled only when `KEYCLOAK_URL`, `KEYCLOAK_REALM`, and `OIDC_CLIENT_ID` are set. This environment has no Docker, so the button stays disabled unless you configure an IdP.
+- **Labelled demo identity** — explicit buttons for Maya (talent ops) or Alex (candidate). Requires `ALLOW_DEMO_LOGIN=true` (default). Not silent.
+- **Persistence** — interviews, audit, idempotency, org, and revoked JTIs write to `data/signalroom-store.json` and survive API restart. Mongo is still the production replacement when `MONGO_URL` is available.
+- **Empty dashboard** — no Maya seed interviews unless `SIGNALROOM_SEED_DEMO=true`.
 
 **Create a Keycloak user (for Phase U1, not wired yet):**
 

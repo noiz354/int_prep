@@ -3,14 +3,14 @@ import { upcomingInterviews } from '../data/platformData.js';
 import { foundationSnapshot } from '../data/foundationData.js';
 import { completionOverview } from '../data/completionData.js';
 import { clientEventBus } from './eventBus.js';
-import { getDemoSession } from './session.js';
+import { getSession } from './session.js';
 
 const wait = (ms = 180) => new Promise((resolve) => setTimeout(resolve, ms));
 const storageKey = 'signalroom:scorecards';
 const useApi = import.meta.env.VITE_USE_API === 'true';
 
 async function apiRequest(path, options = {}) {
-  const session = await getDemoSession();
+  const session = getSession();
   const response = await fetch(path, {
     ...options,
     headers: {

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { createReadinessService } from '../../../packages/candidate-readiness-domain/src/readinessService.mjs';
 import { assertPreparationOnly } from '../../../packages/candidate-readiness-domain/src/policies.mjs';
 import { hashTenant, inSpan, requestLogger, startTelemetry } from '../../../packages/observability/src/telemetry.mjs';
+import { requireBearerOrDevHeaders } from '../../../apps/api/src/auth.mjs';
 
 await startTelemetry({ serviceName: process.env.OTEL_SERVICE_NAME || 'candidate-readiness-api' });
 

@@ -4,7 +4,8 @@ import { getDemoSession, isRemoteApiEnabled } from './session.js';
 /** Uses a relative path so the browser never needs a localhost URL. */
 export async function connectInterviewRoom(interviewId, handlers = {}) {
   if (!isRemoteApiEnabled()) return { mode: 'local', disconnect: () => {}, sendAction: () => {} };
-  const session = await getDemoSession();
+  const session = getSession();
+  if (!session?.accessToken) return { mode: 'local', disconnect: () => {}, sendAction: () => {} };
   const socket = io({
     path: '/socket.io',
     auth: { token: session.accessToken },

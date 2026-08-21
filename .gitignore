@@ -14,3 +14,5 @@ scripts/mocks/mongodb-keyfile/keyfile
 .commandcode/settings.json
 # User task working directory.
 21-8-26-tasks/
+
+data/

@@ -26,7 +26,7 @@
 | FE-M-02 | `src/data/foundationData.js` | Fixed workflows, requisitions, jobs, schemas, quality, flags, SLOs, analytics, policy, model data | Mocked frontend fallback | Remove as default source; use real control-plane API and persisted data |
 | FE-M-03 | `src/data/completionData.js` | Fixed catalog of final 50 provider-ready actions | Mocked frontend fallback | Replace with actual provider capability/configuration registry and deployment status |
 | FE-M-04 | `src/lib/platformApi.js` | `VITE_USE_API` defaults to local fallback; many actions fabricate local IDs/results after delays | Local adapter | Make real API the normal path; preserve a clearly labelled dev fixture mode only |
-| FE-M-05 | `src/lib/session.js` | Automatically logs in seeded Maya identity through `/api/auth/demo-login` | Development authentication stub | OIDC/SAML/SCIM, MFA/passkeys, secure session lifecycle, tenant membership |
+| FE-M-05 | `src/lib/session.js` | **U1:** no auto Maya login. LoginGate + labelled demo or OIDC. Logout revokes JWT `jti`. | Local session | Wire running Keycloak; drop demo when IdP is required |
 
 ### 1.2 Main product screens using seeded/simulated content
 
@@ -59,7 +59,7 @@
 
 | Audit ID | File(s) | Current behavior | Classification | Required replacement |
 |---|---|---|---|---|
-| BE-M-01 | `apps/api/src/repositories.mjs` | `MemoryInterviewRepository` is used by the running API; all state resets on restart | In-memory persistence stub | Real MongoDB/Postgres repository, migrations, indexes, encrypted fields, backup, retention/deletion |
+| BE-M-01 | `apps/api/src/repositories.mjs` | **U1:** file-backed store (`data/signalroom-store.json`) is the default; survives restart. Mongo adapter still unwired (no Docker here). | Local durable file | MongoDB when `MONGO_URL` is reachable |
 | BE-M-02 | `apps/api/src/auth.mjs`, `apps/api/src/server.js` | Seeded users and HMAC JWT demo login | Development auth stub | OIDC/SAML/SCIM, verified claims, MFA/passkey, logout/revocation, tenant/group mapping |
 | BE-M-03 | `apps/api/src/platformServices.mjs` | Workflows, rubrics, models, flags, requisitions, jobs, analytics, schemas, policy are in-memory/static | Local control-plane adapter | Durable services/repositories, configuration management, provider integrations |
 | BE-M-04 | `apps/api/src/completionServices.mjs` | Final 50 capabilities return deterministic provider-ready records | Deterministic stub layer | Replace per domain with real provider implementation; delete simulated result after each replacement |
