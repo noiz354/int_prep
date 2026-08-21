@@ -19,7 +19,7 @@ Source of capability truth: `src/data/capabilityRegistry.js` (also `docs/CAPABIL
 | Keep interviews after restart | Yes — file store | Mongo when `MONGO_URL` is set |
 | Two browsers in the same interview room | Yes — P2P WebRTC on the same machine. Not LiveKit/TURN | U3 done; SFU still later |
 | Ask a grounded copilot question | Yes — consent required; Ollama if up, else labelled fallback | U4 |
-| Ready / Vault with your own durable data | Demo UI + optional in-memory APIs | U5 |
+| Ready / Vault with your own durable data | Yes — file store + JWT (Alex). Gmail/payments blocked | U5 |
 
 ---
 

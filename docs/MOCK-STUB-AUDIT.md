@@ -49,8 +49,8 @@
 | Audit ID | File(s) | Current behavior | Classification | Required replacement |
 |---|---|---|---|---|
 | CR-M-01 | `src/components/CandidatePortal.jsx` | **U3:** invitation token loads the interview; consent hits `/api/public/invitations`. Device preflight remains user-triggered. | Partial | OIDC candidate identity, accommodation booking |
-| CR-M-02 | `apps/candidate-readiness-web/src/data/demo.js` | Job, competencies, coaches, scores, availability are fixed | Mocked frontend | Authorized JD ingestion, persisted plans, coach directory/matching/booking APIs |
-| CR-M-03 | `apps/candidate-readiness-web/src/App.jsx` | Readiness journey is a polished demo with no real auth, progress, coach booking, or handoff | Mocked frontend scaffold | Routed authenticated app, API state, accessibility tests, real plan/practice/coach workflows |
+| CR-M-02 | `apps/candidate-readiness-web/src/data/demo.js` | **U5:** demo.js is labelled seed copy only. API mode starts empty and persists JD/plans/stories. | Partial | Coach roster still empty until created |
+| CR-M-03 | `apps/candidate-readiness-web/src/App.jsx` | **U5:** JWT sign-in (Alex), dashboard from API, lockout control. | Partial | A11y UAT pack still missing |
 | CR-M-04 | `apps/candidate-readiness-web/src/lib/readinessApi.js` | Defaults to demo mode and uses header-based API only when remote | Local adapter | OIDC session, relative deployment routing/proxy, retry/error states, real data ownership controls |
 
 ---
@@ -110,7 +110,7 @@
 
 | Audit ID | Current behavior | Required replacement |
 |---|---|---|
-| CR-M-05 | Domain service stores jobs, plans, coaches, and handoffs in `Map` objects | Persistent repository, tenant isolation, audit/events, retention/export/deletion |
+| CR-M-05 | **U5:** file-backed Maps (`data/readiness-store.json` / `data/vault-store.json`). | Mongo when `MONGO_URL` is set |
 | CR-M-06 | API trusts development headers for tenant, actor, and role | Signed OIDC claims, RBAC/ABAC, session lifecycle, step-up verification |
 | CR-M-07 | AI coaching is deterministic and lacks authorized retrieval/model evaluation | Model/RAG provider, source approval, evaluation/red-team, review queue |
 | CR-M-08 | Coach matching checks simple specialty/language/timezone overlap | Verified coach directory, availability, conflict engine, booking/calendar, rematch/safety workflows |

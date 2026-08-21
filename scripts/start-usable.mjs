@@ -3,7 +3,7 @@
  * Boot the human-usable local path for the main interview product:
  * Express API + Vite with VITE_USE_API=true (relative /api proxy).
  *
- * Does not start Docker providers, OIDC, Mongo, or the Ready/Vault/RTC apps.
+ * Also starts Ready + Vault APIs/web when START_READY_VAULT is not false.
  * See docs/USER-RUNBOOK.md.
  */
 import { spawn } from 'node:child_process';
@@ -35,12 +35,14 @@ process.on('SIGTERM', () => { shutdown('SIGTERM'); process.exit(143); });
 
 console.log(`
 SignalRoom local usable path
-  API     http://0.0.0.0:8787
-  Web     Vite on port 5190  (VITE_USE_API=true)
-  Auth    demo JWT still default until Phase U1
-  Docs    docs/USER-RUNBOOK.md
+  API        http://0.0.0.0:8787
+  Web        Vite on port 5190  (VITE_USE_API=true)
+  Ready API  :8790   Ready web :5193
+  Vault API  :8792   Vault web :5191
+  Auth       labelled demo JWT (Alex for Ready/Vault)
+  Docs       docs/USER-RUNBOOK.md
 
-Ctrl+C stops both processes.
+Ctrl+C stops all processes. START_READY_VAULT=false skips Ready/Vault.
 `);
 
 run('api', 'node', ['apps/api/src/server.js']);

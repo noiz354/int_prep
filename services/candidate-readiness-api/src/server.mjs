@@ -4,12 +4,18 @@ import { createReadinessService } from '../../../packages/candidate-readiness-do
 import { assertPreparationOnly } from '../../../packages/candidate-readiness-domain/src/policies.mjs';
 import { hashTenant, inSpan, requestLogger, startTelemetry } from '../../../packages/observability/src/telemetry.mjs';
 import { requireBearerOrDevHeaders } from '../../../apps/api/src/auth.mjs';
+import { BoundaryViolationError } from '../../../packages/candidate-readiness-domain/src/policies.mjs';
+import { createLocalJsonStore } from '../../../packages/local-json-store.mjs';
 
 await startTelemetry({ serviceName: process.env.OTEL_SERVICE_NAME || 'candidate-readiness-api' });
 
 const app = express();
 const port = Number(process.env.PORT || 8790);
-const service = createReadinessService();
+const store = createLocalJsonStore({
+  filePath: process.env.READINESS_STORE_PATH || 'data/readiness-store.json',
+  empty: {},
+});
+const service = createReadinessService({ initial: store.load(), persist: store.save });
 const idempotencyResponses = new Map();
 const auditEvents = [];
 
@@ -26,14 +32,7 @@ app.use((req, res, next) => {
 
 // Development-only identity seam. Production must replace this with verified
 // OIDC/SAML claims, tenant membership, roles, MFA, and durable audit events.
-function requireContext(req, res, next) {
-  const tenantId = req.get('x-tenant-id');
-  const actorId = req.get('x-actor-id');
-  const role = req.get('x-actor-role');
-  if (!tenantId || !actorId || !role) return res.status(401).json({ error: 'Tenant, actor, and role context are required.' });
-  req.actor = { tenantId, actorId, role };
-  next();
-}
+const requireContext = requireBearerOrDevHeaders;
 
 function idempotent(req, res, next) {
   const key = req.get('idempotency-key');
@@ -61,7 +60,7 @@ function recordAudit(req, action, entityId, metadata = {}) {
 
 const practiceSessionSchema = z.object({
   planId: z.string().min(1),
-  sessionContext: z.literal('preparation'),
+  sessionContext: z.enum(['preparation', 'live_assessment']),
   consentForAi: z.boolean(),
   practiceMode: z.enum(['behavioral', 'technical', 'system_design', 'portfolio', 'coding']),
   competency: z.string().min(2),
@@ -71,7 +70,7 @@ const practiceSessionSchema = z.object({
 const bookingSchema = z.object({ planId: z.string().min(1), coachId: z.string().min(1), slot: z.string().min(3), candidateApprovedAt: z.string().datetime() });
 const milestoneSchema = z.object({ milestoneId: z.string().min(1), status: z.enum(['not_started', 'in_progress', 'complete']) });
 
-app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'candidate-readiness-api', mode: 'development-scaffold', boundary: 'preparation_only' }));
+app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'candidate-readiness-api', mode: store.mode, persistence: store.mode, boundary: 'preparation_only' }));
 
 app.post('/v1/profiles', requireContext, candidateOnly, idempotent, (req, res) => {
   try {
@@ -199,8 +198,26 @@ app.post('/v1/readiness-plans/:planId/device-ready', requireContext, candidateOn
   } catch (error) { return res.status(422).json({ error: error.message }); }
 });
 
+app.get('/v1/job-descriptions', requireContext, candidateOnly, (req, res) => {
+  return res.json({ data: service.listJobDescriptions({ tenantId: req.actor.tenantId, candidateId: req.actor.actorId }) });
+});
+app.get('/v1/stories', requireContext, candidateOnly, (req, res) => {
+  return res.json({ data: service.listStories({ tenantId: req.actor.tenantId, candidateId: req.actor.actorId }) });
+});
+app.get('/v1/practice-sessions', requireContext, candidateOnly, (req, res) => {
+  return res.json({ data: service.listPracticeSessions({ tenantId: req.actor.tenantId, candidateId: req.actor.actorId }) });
+});
+app.get('/v1/coaches', requireContext, candidateOnly, (req, res) => {
+  return res.json({ data: service.listCoaches({ tenantId: req.actor.tenantId }) });
+});
 app.get('/v1/dashboard', requireContext, candidateOnly, (req, res) => {
   return res.json({ data: service.getDashboard({ tenantId: req.actor.tenantId, candidateId: req.query.candidateId || req.actor.actorId }) });
+});
+app.post('/v1/data-deletion', requireContext, candidateOnly, idempotent, (req, res) => {
+  const result = service.deleteCandidateData({ tenantId: req.actor.tenantId, candidateId: req.actor.actorId });
+  const response = { data: result };
+  idempotencyResponses.set(res.locals.idempotencyKey, response);
+  return res.status(201).json(response);
 });
 
 app.get('/v1/data-export', requireContext, candidateOnly, (req, res) => {

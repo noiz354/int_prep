@@ -3,7 +3,7 @@ import { z } from 'zod';
 export const ActorRole = z.enum(['candidate', 'coach', 'program_admin', 'trust_reviewer']);
 export const CoachingMode = z.enum(['ai', 'human', 'hybrid', 'none']);
 export const SessionContext = z.enum(['preparation', 'live_assessment']);
-export const SourceApproval = z.enum(['candidate_owned', 'tenant_approved', 'admin_approved']);
+export const SourceApproval = z.enum(['candidate_owned', 'tenant_approved', 'admin_approved', 'unapproved', 'confidential']);
 export const OpportunitySource = z.enum(['official_career_page', 'approved_ats', 'partner_feed', 'referral', 'recruiter_invitation', 'candidate_added']);
 export const ApplicationStatus = z.enum(['saved', 'review_required', 'submitted', 'received', 'reviewing', 'interview_requested', 'paused', 'closed', 'withdrawn']);
 
@@ -84,7 +84,7 @@ export const PracticeSessionInput = z.object({
   tenantId: z.string().min(1),
   candidateId: z.string().min(1),
   planId: z.string().min(1),
-  sessionContext: z.literal('preparation'),
+  sessionContext: SessionContext,
   consentForAi: z.boolean(),
   practiceMode: z.enum(['behavioral', 'technical', 'system_design', 'portfolio', 'coding']),
   competency: z.string().trim().min(2).max(100),

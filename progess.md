@@ -227,7 +227,9 @@ Phases 0–5 in `PROMPT-FINISH-STUBS-PHASED.md` are complete (tested boundaries;
 
 **Phase U4 complete:** Consent-gated copilot/Intelligence ask path; Ollama/Qdrant probed; labelled deterministic fallback; abstain when thin; audit hashes inputs.
 
-Next: **Phase U5** (Ready + Vault as products) after approval.
+**Phase U5 complete:** Ready/Vault JWT + file persistence; demo.js not source of truth; live_assessment lockout; UAT P0 self-host evidence. Gmail/payments still blocked.
+
+Next: **Phase U6** (data plane / ops honesty) after approval.
 
 ## Production deployment backlog
 

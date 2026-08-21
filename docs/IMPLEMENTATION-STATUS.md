@@ -9,7 +9,7 @@ A single schema in `src/data/capabilityRegistry.js` is the source of truth for F
 | Product | Total | mocked | local_only | provider_wired | staging_verified | production_deployed | blocked_on_decision |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | Interview PRD | 100 | 11 | 89 | 0 | 0 | 0 | 0 |
-| Ready CR-01…48 | 48 | 26 | 18 | 0 | 0 | 0 | 4 |
+| Ready CR-01…48 | 48 | 18 | 26 | 0 | 0 | 0 | 4 |
 | Vault CV-01…20 | 20 | 1 | 17 | 0 | 0 | 0 | 2 |
 
 **User-usable count: 0.** Human boot path: `npm run start:usable` and `docs/USER-RUNBOOK.md`.
@@ -30,6 +30,10 @@ Docker was unavailable, so U1 wired a **file-backed durable store** and an **OID
 ## Phase U2 — recruiter product uses the API
 
 When `VITE_USE_API=true`, Dashboard and Interviews no longer treat `platformData.js` as the source of truth. Creating an interview writes the durable store, optional schedule + invitation, and the list reloads. Control Center lifecycle/artifact actions target the selected live interview. Calendar/email remain labelled adapters.
+
+## Phase U5 — Ready + Vault as products
+
+`demo.js` is no longer the source of truth when `VITE_USE_API=true`. Ready (5193/8790) and Vault (5191/8792) persist to `data/readiness-store.json` and `data/vault-store.json`. Sign-in uses the main demo JWT (Alex). live_assessment is rejected at domain + API + UI. Gmail/calendar OAuth and payments stay `blocked_on_decision`. Evidence: `docs/UAT-EVIDENCE.md`.
 
 ## Phase U4 — assistive AI a person can ask
 

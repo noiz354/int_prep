@@ -1,6 +1,9 @@
-import { useMemo, useState } from 'react';
-import { actionInbox, demoCoaches, demoJob, demoMaterials, demoOpportunities, demoProfile, demoStories } from './data/demo.js';
-import { createApplicationReview, createReadinessPlan, requestCoachBooking, submitPractice } from './lib/readinessApi.js';
+import { useEffect, useMemo, useState } from 'react';
+import { demoMaterials } from './data/demo.js';
+import {
+  addStory as apiAddStory, createJobDescription, createOpportunity, createReadinessPlan, createApplicationReview,
+  deleteData, exportData, getDashboard, isRemote, listCoaches, loginDemo, readSession, requestCoachBooking, submitPractice,
+} from './lib/readinessApi.js';
 import { CapabilityStatus } from './CapabilityStatus.jsx';
 
 const navItems = [
@@ -49,14 +52,15 @@ export function App() {
   const [loading, setLoading] = useState('');
 
   const readiness = useMemo(() => {
-    const skill = Math.round(demoJob.competencies.reduce((sum, item) => sum + item.progress, 0) / demoJob.competencies.length);
+    const comps = job?.competencies || [];
+    const skill = comps.length ? Math.round(comps.reduce((sum, item) => sum + (item.progress || 50), 0) / comps.length) : 0;
     const evidence = Math.min(100, stories.length * 28);
     const practiceScore = practice.length ? Math.round(practice.reduce((sum, item) => sum + (item.feedback?.readinessSignal || 0), 0) / practice.length) : 48;
     const communication = practice.length ? Math.min(95, 55 + practice.length * 10) : 58;
     const session = deviceReady ? 100 : 40;
     const total = Math.round(skill * .25 + evidence * .20 + practiceScore * .20 + communication * .15 + session * .10 + 45 * .10);
     return { total, skill, evidence, practice: practiceScore, communication, session, label: total >= 80 ? 'Ready to apply or schedule assessment' : total >= 70 ? 'Schedule a mock and human review' : total >= 50 ? 'Practice priority areas first' : 'Build fundamentals first' };
-  }, [deviceReady, practice, stories]);
+  }, [deviceReady, practice, stories, job]);
 
   const notify = (message) => {
     setToast(message);
@@ -64,10 +68,31 @@ export function App() {
     window.__readyToast = window.setTimeout(() => setToast(''), 4500);
   };
 
+  const saveJob = async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    setLoading('job');
+    try {
+      const created = await createJobDescription({
+        title: form.get('title'),
+        company: form.get('company') || 'Target company',
+        sourceApproval: 'candidate_owned',
+        sourceReference: 'candidate-entered',
+        content: form.get('content'),
+        competencies: String(form.get('competencies') || 'Systems thinking, Accessibility').split(',').map((item) => item.trim()).filter(Boolean),
+        stack: String(form.get('stack') || 'React').split(',').map((item) => item.trim()).filter(Boolean),
+      });
+      setJob(created);
+      notify('Authorized job description saved to your tenant store.');
+    } catch (error) { notify(error.message); }
+    finally { setLoading(''); }
+  };
+
   const buildPlan = async () => {
+    if (!job?.id) return notify('Save an authorized job description first.');
     setLoading('plan');
     try {
-      const created = await createReadinessPlan({ jobDescriptionId: demoJob.id, coachingMode: mode, timeBudgetHours: 6, language: 'en', accessibilityPreferences: [] });
+      const created = await createReadinessPlan({ jobDescriptionId: job.id, coachingMode: mode, timeBudgetHours: 6, language: 'en', accessibilityPreferences: [] });
       setPlan(created);
       notify('Your candidate-owned readiness plan is ready. It stays separate from hiring evaluation data.');
     } catch (error) { notify(error.message); }
@@ -77,7 +102,8 @@ export function App() {
   const runPractice = async () => {
     setLoading('practice');
     try {
-      const session = await submitPractice({ planId: plan?.id || 'cr-plan-demo', sessionContext: 'preparation', consentForAi: consent.ai, practiceMode, competency: demoJob.competencies[0].name, answer: practiceAnswer });
+      const competency = job?.competencies?.[0]?.name || job?.competencies?.[0] || 'Systems thinking';
+      const session = await submitPractice({ planId: plan?.id, sessionContext: 'preparation', consentForAi: consent.ai, practiceMode, competency, answer: practiceAnswer });
       setPractice((items) => [session, ...items]);
       notify('Practice feedback created. It is guidance only, not a hiring prediction.');
     } catch (error) { notify(error.message); }
@@ -87,7 +113,7 @@ export function App() {
   const bookCoach = async (coach) => {
     setLoading(`coach-${coach.id}`);
     try {
-      const next = await requestCoachBooking({ planId: plan?.id || 'cr-plan-demo', coachId: coach.id, slot: coach.availability, candidateApprovedAt: new Date().toISOString() });
+      const next = await requestCoachBooking({ planId: plan?.id, coachId: coach.coachId || coach.id, slot: coach.availability?.[0] || coach.availability || 'unspecified', candidateApprovedAt: new Date().toISOString() });
       setSelectedCoach(coach.id);
       setBooking(next);
       setConsent((current) => ({ ...current, human: true }));
@@ -106,25 +132,53 @@ export function App() {
     finally { setLoading(''); }
   };
 
-  const addStory = () => {
-    const story = { id: `story-${Date.now()}`, title: 'Accessibility remediation', competency: 'Accessibility', summary: 'Improved keyboard navigation and semantic structure in a complex workflow.', evidence: 'Added tests and resolved issues discovered through user feedback.', score: 68 };
-    setStories((items) => [story, ...items]);
-    notify('A draft story was added to your private evidence library. Edit it with truthful details before sharing.');
+  const addStory = async () => {
+    try {
+      const story = await apiAddStory({
+        title: 'Accessibility remediation',
+        competency: 'Accessibility',
+        situation: 'A complex workflow failed keyboard users in production.',
+        task: 'Restore keyboard-first navigation without regressing visuals.',
+        action: 'Added semantic structure, focus order, and tests with assistive-tech checks.',
+        result: 'Critical keyboard issues closed and review process documented.',
+        reflection: 'Inclusive defaults belong in the definition of done.',
+      });
+      setStories((items) => [story, ...items]);
+      notify('A story was saved to your private evidence library.');
+    } catch (error) { notify(error.message); }
+  };
+
+  const tryLiveLockout = async () => {
+    try {
+      await submitPractice({ planId: plan?.id || 'none', sessionContext: 'live_assessment', consentForAi: true, practiceMode: 'technical', competency: 'Systems thinking', answer: 'bypass' });
+      setLockout('unexpected-allow');
+    } catch (error) {
+      setLockout(error.message);
+      notify(error.message);
+    }
   };
 
   const content = {
-    overview: <Overview readiness={readiness} plan={plan} mode={mode} actions={actionInbox} setActive={setActive} deviceReady={deviceReady} setDeviceReady={setDeviceReady} notify={notify} />,
-    role: <RoleIntelligence mode={mode} setMode={setMode} plan={plan} buildPlan={buildPlan} loading={loading} stories={stories} addStory={addStory} notify={notify} />,
-    practice: <PracticeLab consent={consent} practiceMode={practiceMode} setPracticeMode={setPracticeMode} answer={practiceAnswer} setAnswer={setPracticeAnswer} runPractice={runPractice} loading={loading} practice={practice} />,
-    coaches: <CoachNetwork mode={mode} selectedCoach={selectedCoach} booking={booking} bookCoach={bookCoach} loading={loading} />,
-    opportunities: <OpportunityTracker opportunities={opportunities} readiness={readiness} requestApplication={requestApplication} loading={loading} notify={notify} />,
-    trust: <TrustData consent={consent} setConsent={setConsent} deviceReady={deviceReady} notify={notify} />,
+    overview: <Overview readiness={readiness} plan={plan} mode={mode} actions={plan?.milestones?.filter((item) => item.status !== 'complete').map((item) => ({ id: item.id, type: 'practice', label: item.nextAction, detail: item.competency, priority: 'high' })) || []} setActive={setActive} deviceReady={deviceReady} setDeviceReady={setDeviceReady} notify={notify} />,
+    role: <RoleIntelligence job={job} saveJob={saveJob} mode={mode} setMode={setMode} plan={plan} buildPlan={buildPlan} loading={loading} stories={stories} addStory={addStory} notify={notify} />,
+    practice: <PracticeLab job={job} consent={consent} practiceMode={practiceMode} setPracticeMode={setPracticeMode} answer={practiceAnswer} setAnswer={setPracticeAnswer} runPractice={runPractice} loading={loading} practice={practice} />,
+    coaches: <CoachNetwork coaches={coaches} mode={mode} selectedCoach={selectedCoach} booking={booking} bookCoach={bookCoach} loading={loading} />,
+    opportunities: <OpportunityTracker opportunities={opportunities} readiness={readiness} requestApplication={requestApplication} loading={loading} notify={notify} addOpportunity={async () => {
+      try {
+        const created = await createOpportunity({ title: job?.title || 'Target role', company: job?.company || 'Target company', source: 'candidate_added', sourceReference: 'candidate-entered', requirements: ['practice'] });
+        setOpportunities((items) => [created, ...items]);
+        notify('Opportunity saved privately.');
+      } catch (error) { notify(error.message); }
+    }} />,
+    trust: <TrustData consent={consent} setConsent={setConsent} deviceReady={deviceReady} notify={notify} lockout={lockout} tryLiveLockout={tryLiveLockout} exportData={exportData} deleteData={async () => { await deleteData(); await reload(); notify('Candidate-owned readiness data deleted from this store.'); }} />,
   };
+
+  if (isRemote() && !session) return <SignIn onSignedIn={setSession} />;
 
   return <div className="ready-shell">
     <aside className="ready-sidebar" aria-label="Readiness navigation">
       <a className="ready-brand" href="#overview"><span>R</span><b>signalroom <em>ready</em></b></a>
-      <div className="candidate-mini"><span>{demoProfile.initials}</span><div><b>{demoProfile.name}</b><small>{demoProfile.headline}</small></div></div>
+      <div className="candidate-mini"><span>{initials}</span><div><b>{profile.name}</b><small>{isRemote() ? 'API-backed store' : 'Local labelled demo'}</small></div></div>
       <nav>{navItems.map(([id, label, icon]) => <button key={id} className={active === id ? 'is-active' : ''} onClick={() => setActive(id)} aria-current={active === id ? 'page' : undefined}><span>{icon}</span>{label}</button>)}</nav>
       <div className="sidebar-bottom"><span className="boundary-dot"/> <p><b>Preparation only</b><small>Not connected to a live employer assessment.</small></p></div>
     </aside>
@@ -153,46 +207,49 @@ function Overview({ readiness, plan, mode, actions, setActive, deviceReady, setD
   </section>;
 }
 
-function RoleIntelligence({ mode, setMode, plan, buildPlan, loading, stories, addStory, notify }) {
+function RoleIntelligence({ job, saveJob, mode, setMode, plan, buildPlan, loading, stories, addStory, notify }) {
+  const competencies = (job?.competencies || []).map((item) => typeof item === 'string' ? { id: item, name: item, focus: '', action: '', progress: 40 } : item);
   return <section className="screen-grid role-grid">
-    <article className="panel-card role-hero"><div className="role-icon">⌘</div><div><span className="eyebrow">AUTHORIZED ROLE INTELLIGENCE</span><h2>{demoJob.title}</h2><p>{demoJob.company} · {demoJob.level} · {demoJob.sourceLabel}</p></div><Badge>Public/approved research only</Badge></article>
-    <article className="panel-card skills-card"><SectionTitle eyebrow="SKILL & STACK MAP" title="What this role needs"/><div className="skill-matrix">{demoJob.competencies.map((item) => <article key={item.id}><div><b>{item.name}</b><small>{item.focus}</small><em>{item.action}</em></div><span><i><b style={{ width: `${item.progress}%` }}/></i><strong>{item.progress}% evidence</strong></span></article>)}</div><div className="stack-tags">{demoJob.stack.map((stack) => <span key={stack}>{stack}</span>)}</div></article>
+    <article className="panel-card role-hero"><div className="role-icon">⌘</div><div><span className="eyebrow">AUTHORIZED ROLE INTELLIGENCE</span><h2>{job?.title || 'No job description yet'}</h2><p>{job ? `${job.company} · ${job.sourceApproval}` : 'Paste an authorized JD you own. Unapproved/confidential sources are blocked.'}</p></div><Badge>Public/approved research only</Badge></article>
+    <article className="panel-card plan-builder"><SectionTitle eyebrow="ADD JD" title="Candidate-owned job description"/><form onSubmit={saveJob} className="vault-form"><label><span>Title</span><input name="title" required minLength={2} defaultValue="Senior Frontend Engineer" /></label><label><span>Company</span><input name="company" defaultValue="Target company" /></label><label><span>Competencies (comma)</span><input name="competencies" defaultValue="Systems thinking, Accessibility, Collaboration" /></label><label><span>Stack (comma)</span><input name="stack" defaultValue="React, TypeScript" /></label><label><span>JD text (min 40 chars)</span><textarea name="content" required minLength={40} rows={4} defaultValue="Build accessible, reliable product systems. Own client architecture, performance, and inclusive design with measurable outcomes." /></label><button className="primary full" disabled={loading === 'job'}>{loading === 'job' ? 'Saving…' : 'Save authorized JD'}</button></form></article>
+    <article className="panel-card skills-card"><SectionTitle eyebrow="SKILL & STACK MAP" title="What this role needs"/><div className="skill-matrix">{competencies.length ? competencies.map((item) => <article key={item.id || item.name}><div><b>{item.name}</b><small>{item.focus}</small><em>{item.action}</em></div><span><i><b style={{ width: `${item.progress || 40}%` }}/></i><strong>{item.progress || 40}% evidence</strong></span></article>) : <p className="microcopy">Save a JD to see competencies.</p>}</div><div className="stack-tags">{(job?.stack || []).map((stack) => <span key={stack}>{stack}</span>)}</div></article>
     <article className="panel-card plan-builder"><SectionTitle eyebrow="SUPPORT MODE" title="Build your readiness plan"/><div className="mode-grid">{[['ai','AI coach','Practice immediately with original, JD-grounded prompts.'],['human','Human coach','Get feedback from a verified specialist.'],['hybrid','Hybrid','Use AI first, then share only selected preparation context.']].map(([id,title,description]) => <button key={id} className={mode === id ? 'is-selected' : ''} onClick={() => setMode(id)}><span className="mode-circle"/><b>{title}</b><small>{description}</small></button>)}</div><button className="primary full" disabled={loading === 'plan'} onClick={buildPlan}>{loading === 'plan' ? 'Building plan…' : plan ? 'Refresh my readiness plan' : 'Build my readiness plan'}</button><p className="microcopy">Plans use candidate-provided evidence and approved sources. They never include hidden interview questions.</p></article>
     <article className="panel-card materials-card"><SectionTitle eyebrow="RESEARCH MATERIALS" title="Public, role-relevant sources"/><div className="material-list">{demoMaterials.map((item) => <article key={item.id}><span>↗</span><div><b>{item.title}</b><small>{item.type} · {item.relevance}</small><em>{item.source}</em></div><button onClick={() => notify(`${item.action} is queued in your private plan.`)}>{item.action}</button></article>)}</div></article>
     <article className="panel-card stories-card"><SectionTitle eyebrow="CANDIDATE EVIDENCE LIBRARY" title="Truthful stories beat memorized answers" action={<button className="text-button" onClick={addStory}>Add draft story</button>}/><div className="story-list">{stories.map((story) => <article key={story.id}><span>{story.score}</span><div><b>{story.title}</b><small>{story.competency} · {story.summary}</small><em>{story.evidence}</em></div></article>)}</div></article>
   </section>;
 }
 
-function PracticeLab({ consent, practiceMode, setPracticeMode, answer, setAnswer, runPractice, loading, practice }) {
+function PracticeLab({ job, consent, practiceMode, setPracticeMode, answer, setAnswer, runPractice, loading, practice }) {
   const last = practice[0];
+  const competency = job?.competencies?.[0]?.name || job?.competencies?.[0] || 'your target competency';
   return <section className="screen-grid practice-grid">
     <article className="panel-card practice-header"><div><span className="eyebrow">PREPARATION-ONLY PRACTICE LAB</span><h2>Practice how you think aloud.</h2><p>Original role-relevant prompts. No live-assessment integration, prompt relay, or hidden answer assistance.</p></div><Badge tone="mint">Live-assessment lockout active</Badge></article>
     <article className="panel-card practice-modes"><SectionTitle eyebrow="SELECT MODE" title="What do you want to rehearse?"/><div className="practice-mode-list">{practiceModes.map(([id,title,description]) => <button key={id} className={practiceMode === id ? 'is-selected' : ''} onClick={() => setPracticeMode(id)}><span>{id === 'behavioral' ? '◉' : id === 'technical' ? '⌘' : id === 'coding' ? '</>' : '◌'}</span><div><b>{title}</b><small>{description}</small></div></button>)}</div></article>
-    <article className="panel-card answer-card"><SectionTitle eyebrow="PROMPT" title={`Explain ${demoJob.competencies[0].name}`}/><blockquote>“How would you design a responsive collaboration experience when a user briefly loses connectivity? Explain your assumptions, trade-offs, and how you would validate the result.”</blockquote><label><span>Your private practice answer</span><textarea value={answer} onChange={(event) => setAnswer(event.target.value)} /></label><div className="answer-footer"><span>AI practice consent: <b>{consent.ai ? 'enabled' : 'disabled'}</b></span><button className="primary" disabled={loading === 'practice' || !consent.ai} onClick={runPractice}>{loading === 'practice' ? 'Reviewing…' : 'Get preparation feedback'}</button></div></article>
+    <article className="panel-card answer-card"><SectionTitle eyebrow="PROMPT" title={`Explain ${competency}`}/><blockquote>“How would you design a responsive collaboration experience when a user briefly loses connectivity? Explain your assumptions, trade-offs, and how you would validate the result.”</blockquote><label><span>Your private practice answer</span><textarea value={answer} onChange={(event) => setAnswer(event.target.value)} /></label><div className="answer-footer"><span>AI practice consent: <b>{consent.ai ? 'enabled' : 'disabled'}</b></span><button className="primary" disabled={loading === 'practice' || !consent.ai} onClick={runPractice}>{loading === 'practice' ? 'Reviewing…' : 'Get preparation feedback'}</button></div></article>
     <article className="panel-card feedback-card"><SectionTitle eyebrow="FEEDBACK" title="Evidence, not personality"/>{last ? <><div className="practice-score"><strong>{last.feedback.readinessSignal}</strong><span>practice signal<br/>not a hiring score</span></div><ul>{last.feedback.guidance.map((item) => <li key={item}>✓ {item}</li>)}</ul><p>Use: Context → Constraints → Approach → Trade-offs → Validation.</p></> : <div className="empty-state"><span>✦</span><p>Complete a mock answer to receive evidence-linked preparation feedback.</p></div>}</article>
     <article className="panel-card communication-card"><SectionTitle eyebrow="COMMUNICATION COACH" title="Make your reasoning easy to follow"/><div className="framework"><span>1</span><div><b>Context</b><small>Define the problem and assumptions.</small></div><span>2</span><div><b>Constraints</b><small>Name scale, security, accessibility, or reliability limits.</small></div><span>3</span><div><b>Approach</b><small>Explain the decision, trade-off, and validation plan.</small></div></div></article>
   </section>;
 }
 
-function CoachNetwork({ mode, selectedCoach, booking, bookCoach, loading }) {
+function CoachNetwork({ coaches = [], mode, selectedCoach, booking, bookCoach, loading }) {
   return <section className="screen-grid coach-grid">
     <article className="panel-card coach-hero"><div><span className="eyebrow">VERIFIED HUMAN COACHING</span><h2>Use human judgment where it matters.</h2><p>Coach matches consider domain expertise, language, time zone, availability, verification, and candidate choice—not employer evaluation data.</p></div><Badge tone="mint">Candidate-controlled handoff</Badge></article>
     <article className="panel-card match-card"><SectionTitle eyebrow="WHY THESE COACHES" title="Transparent matching"/><div className="match-reasons"><span>✓ Stack and role specialty</span><span>✓ Language and time zone</span><span>✓ Verified status and conflict check</span><span>✓ Candidate decides whether to book or share context</span></div><p className="microcopy">Current support mode: <b>{mode}</b>. Hybrid mode lets you share selected goals, milestones, evidence, and accommodations only after approval.</p></article>
-    <article className="panel-card coach-list-card"><SectionTitle eyebrow="MATCHED COACHES" title="Choose your support"/>{demoCoaches.map((coach) => <article className={`coach-row ${selectedCoach === coach.id ? 'is-selected' : ''}`} key={coach.id}><span className="coach-avatar">{coach.name.split(' ').map((name) => name[0]).join('')}</span><div><b>{coach.name} <em>{coach.verified ? 'Verified' : 'Pending'}</em></b><small>{coach.title}</small><p>{coach.specialties.join(' · ')} · {coach.languages.join(', ')} · {coach.timeZone}</p></div><span className="coach-match">{coach.match}%<small>match</small></span><button className="secondary" disabled={Boolean(loading)} onClick={() => bookCoach(coach)}>{loading === `coach-${coach.id}` ? 'Requesting…' : 'Request session'}</button></article>)}</article>
+    <article className="panel-card coach-list-card"><SectionTitle eyebrow="MATCHED COACHES" title="Choose your support"/>{coaches.length ? coaches.map((coach) => <article className={`coach-row ${selectedCoach === (coach.coachId || coach.id) ? 'is-selected' : ''}`} key={coach.coachId || coach.id}><span className="coach-avatar">{(coach.displayName || coach.name || 'C').split(' ').map((name) => name[0]).join('')}</span><div><b>{coach.displayName || coach.name} <em>{coach.verificationStatus === 'verified' || coach.verified ? 'Verified' : 'Pending'}</em></b><small>{(coach.specialties || []).join(' · ')}</small><p>{(coach.languages || []).join(', ')} · {coach.timeZone}</p></div><button className="secondary" disabled={Boolean(loading)} onClick={() => bookCoach(coach)}>{loading === `coach-${coach.coachId || coach.id}` ? 'Requesting…' : 'Request session'}</button></article>) : <p className="microcopy">No verified coaches in this tenant yet. Bookings persist when a coach profile exists.</p>}</article>
     <article className="panel-card handoff-card"><SectionTitle eyebrow="AI → HUMAN HANDOFF" title="You decide what gets shared"/><div className="handoff-fields"><span className="is-shared">Goals & target date</span><span className="is-shared">Milestones</span><span>Practice evidence</span><span>Accessibility preferences</span><span>Story library</span></div><p>Employer interview scores, confidential questions, hiring feedback, and unrelated private data are excluded by default.</p>{booking ? <div className="booking-confirmed">✓ Preparation session requested · {booking.slot}</div> : <button className="secondary full" disabled>Choose a coach to enable handoff</button>}</article>
   </section>;
 }
 
-function OpportunityTracker({ opportunities, readiness, requestApplication, loading, notify }) {
+function OpportunityTracker({ opportunities, readiness, requestApplication, loading, notify, addOpportunity }) {
   return <section className="screen-grid opportunities-grid">
     <article className="panel-card opportunity-hero"><div><span className="eyebrow">CANDIDATE OPPORTUNITY OS</span><h2>Track every opportunity.<br/><em>Apply with control.</em></h2><p>Recommendations use your skills, evidence, preferences, readiness, and verified source quality. Every application remains candidate-approved.</p></div><div className="opportunity-stats"><strong>{opportunities.length}</strong><span>tracked roles</span><strong>{readiness.total}</strong><span>readiness</span></div></article>
     <article className="panel-card campaign-card"><SectionTitle eyebrow="SAFE APPLICATION CAMPAIGN" title="Review before send"/><div className="campaign-steps"><span className="done">1 <b>Set role criteria</b></span><span className="done">2 <b>Check readiness</b></span><span className="current">3 <b>Review every submission</b></span></div><div className="channel-grid"><span className="active">Email digest<br/><small>Opt-in</small></span><span className="active">In-app inbox<br/><small>Default</small></span><span>Calendar<br/><small>Connect later</small></span><span>Instagram Business<br/><small>Opt-in only</small></span></div><p className="microcopy">Automatic submission is disabled until an official partner API, explicit campaign consent, rate cap, receipt capture, duplicate prevention, and pause control are configured.</p></article>
-    <article className="panel-card opportunities-list"><SectionTitle eyebrow="RECOMMENDED OPPORTUNITIES" title="Why each role fits"/>{opportunities.map((opportunity) => <article key={opportunity.id}><span className="opportunity-score">{opportunity.match}%</span><div><b>{opportunity.title}</b><small>{opportunity.company} · {opportunity.source}</small><p>{opportunity.readiness}</p><em>{opportunity.verified ? 'Verified source' : 'Source review needed'} · {opportunity.deadline}</em></div><Badge tone={opportunity.status === 'review_required' ? 'amber' : 'mint'}>{opportunity.status.replaceAll('_', ' ')}</Badge><button className="secondary" disabled={Boolean(loading)} onClick={() => requestApplication(opportunity)}>{loading === `application-${opportunity.id}` ? 'Saving…' : opportunity.status === 'review_required' ? 'Review application' : 'Add to review'}</button></article>)}</article>
+    <article className="panel-card opportunities-list"><SectionTitle eyebrow="TRACKED OPPORTUNITIES" title="Your saved roles" action={<button className="text-button" onClick={addOpportunity}>Add opportunity</button>}/>{opportunities.length ? opportunities.map((opportunity) => <article key={opportunity.id}><span className="opportunity-score">{opportunity.match || '—'}</span><div><b>{opportunity.title}</b><small>{opportunity.company} · {String(opportunity.source || '').replaceAll('_', ' ')}</small></div><Badge tone={opportunity.status === 'review_required' ? 'amber' : 'mint'}>{String(opportunity.status || 'saved').replaceAll('_', ' ')}</Badge><button className="secondary" disabled={Boolean(loading)} onClick={() => requestApplication(opportunity)}>{loading === `application-${opportunity.id}` ? 'Saving…' : 'Add to review'}</button></article>) : <p className="microcopy">No opportunities yet. Add one — it persists in the Ready store.</p>}</article>
     <article className="panel-card tracker-card"><SectionTitle eyebrow="APPLICATION TIMELINE" title="No more black box"/><div className="timeline"><span className="done">Profile and evidence ready</span><span className="done">Role saved from verified source</span><span className="current">Candidate review required</span><span>Submission receipt captured</span><span>Employer/recruiter update</span></div><button className="text-button" onClick={() => notify('A follow-up assistant would draft a respectful message for your review; it never impersonates you.')}>Draft a respectful follow-up →</button></article>
   </section>;
 }
 
-function TrustData({ consent, setConsent, deviceReady, notify }) {
+function TrustData({ consent, setConsent, deviceReady, notify, lockout, tryLiveLockout, exportData, deleteData }) {
   const toggle = (key) => setConsent((current) => ({ ...current, [key]: !current[key] }));
   return <section className="screen-grid trust-grid">
     <article className="panel-card trust-hero"><div><span className="eyebrow">CANDIDATE CONTROL CENTER</span><h2>Your data. Your preparation. Your decision.</h2><p>SignalRoom Ready stores preparation work separately from hiring evaluation. It cannot become an invisible assistant in a real assessment.</p></div><Badge tone="mint">Preparation boundary active</Badge></article>

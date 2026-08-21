@@ -22,9 +22,9 @@ Almost every row also has `productionGate: blocked_on_decision` until credential
 | Product | Total | mocked | local_only | provider_wired | staging_verified | production_deployed | blocked_on_decision |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | Interview (PRD) | 100 | 11 | 89 | 0 | 0 | 0 | 0 |
-| Ready (CR-01…48) | 48 | 26 | 18 | 0 | 0 | 0 | 4 |
+| Ready (CR-01…48) | 48 | 18 | 26 | 0 | 0 | 0 | 4 |
 | Vault (CV-01…20) | 20 | 1 | 17 | 0 | 0 | 0 | 2 |
-| **All** | **168** | **38** | **124** | **0** | **0** | **0** | **6** |
+| **All** | **168** | **30** | **132** | **0** | **0** | **0** | **6** |
 
 User-usable (`provider_wired` + `staging_verified` + `production_deployed`): **0**.
 

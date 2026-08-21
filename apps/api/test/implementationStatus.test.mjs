@@ -50,7 +50,7 @@ test('U0 claims no user-usable or production-deployed capabilities', () => {
   assert.equal(all.userUsable, 0);
   assert.equal(interview.counts.mocked, 11);
   assert.equal(interview.counts.local_only, 89);
-  assert.equal(all.counts.mocked, 38);
-  assert.equal(all.counts.local_only, 124);
+  assert.equal(all.counts.mocked, 30);
+  assert.equal(all.counts.local_only, 132);
   assert.equal(all.counts.blocked_on_decision, 6);
 });
