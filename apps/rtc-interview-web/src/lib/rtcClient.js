@@ -17,8 +17,28 @@ export async function requestMediaTracks() {
   return navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 } }, audio: { echoCancellation: true, noiseSuppression: true } });
 }
 
-export function createLoopbackPeer({ onConnectionState, onIceState, onStats }) {
-  const pc = new RTCPeerConnection({ iceServers: [] });
+let cachedIceServers = null;
+let iceServersExpiry = 0;
+
+async function fetchTurnCredentials() {
+  if (cachedIceServers && Date.now() < iceServersExpiry) return cachedIceServers;
+  try {
+    const session = (() => { try { const raw = sessionStorage.getItem('signalroom:api-session:v1'); return raw ? JSON.parse(raw) : null; } catch { return null; } })();
+    const headers = { 'content-type': 'application/json' };
+    if (session?.accessToken) headers.authorization = `Bearer ${session.accessToken}`;
+    const res = await fetch('/api/media/turn-credentials', { headers });
+    if (!res.ok) return [];
+    const { data } = await res.json();
+    if (!data?.urls?.length) return [];
+    cachedIceServers = [{ urls: data.urls, username: data.username || undefined, credential: data.credential || undefined }];
+    iceServersExpiry = Date.now() + 55 * 60 * 1000;
+    return cachedIceServers;
+  } catch { return []; }
+}
+
+export async function createLoopbackPeer({ onConnectionState, onIceState, onStats }) {
+  const iceServers = await fetchTurnCredentials();
+  const pc = new RTCPeerConnection({ iceServers });
   let localStream = null;
   let statsTimer = null;
 

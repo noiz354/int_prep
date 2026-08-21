@@ -1,13 +1,12 @@
 import { metrics, trace, SpanStatusCode } from '@opentelemetry/api';
-import { NodeSDK } from '@opentelemetry/sdk-node';
-import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 import { hashTenant, requestLogger } from '../../../packages/observability/src/telemetry.mjs';
 
 export { hashTenant, requestLogger };
 
-let sdk;
-const tracer = trace.getTracer('signalroom-api', '0.2.0');
-const meter = metrics.getMeter('signalroom-api', '0.2.0');
+const SERVICE_NAME = 'signalroom-api';
+const SERVICE_VERSION = '0.2.0';
+const tracer = trace.getTracer(SERVICE_NAME, SERVICE_VERSION);
+const meter = metrics.getMeter(SERVICE_NAME, SERVICE_VERSION);
 const requestCounter = meter.createCounter('signalroom.api.requests', { description: 'HTTP API requests handled by the interview control plane' });
 const roomJoinCounter = meter.createCounter('signalroom.room.joins', { description: 'Authorized realtime room joins' });
 const mediaLatency = meter.createHistogram('media.rtc.latency_ms', { description: 'Realtime media round-trip latency in milliseconds', unit: 'ms' });
@@ -27,32 +26,10 @@ export function otlpConfig() {
   return { configured: Boolean(endpoint), endpoint: endpoint || null };
 }
 
-export async function startTelemetry() {
-  if (sdk || process.env.OTEL_ENABLED === 'false') return;
-  const otlp = otlpConfig();
-  let traceExporter;
-  if (otlp.configured) {
-    try {
-      const { OTLPTraceExporter } = await import('@opentelemetry/exporter-trace-otlp-http');
-      const base = String(otlp.endpoint).replace(/\/$/, '');
-      const url = base.endsWith('/v1/traces') ? base : `${base}/v1/traces`;
-      traceExporter = new OTLPTraceExporter({ url });
-    } catch (error) {
-      console.error('OTLP exporter unavailable:', error.message);
-    }
-  }
-  sdk = new NodeSDK({
-    serviceName: process.env.OTEL_SERVICE_NAME || 'signalroom-api',
-    ...(traceExporter ? { traceExporter } : {}),
-    instrumentations: [getNodeAutoInstrumentations()],
-  });
-  sdk.start();
-}
-
-export async function stopTelemetry() {
-  if (sdk) await sdk.shutdown();
-  sdk = undefined;
-}
+// SDK is initialized by instrumentation.js — these are no-ops kept for
+// backward compatibility with callers that may still invoke them.
+export async function startTelemetry() {}
+export async function stopTelemetry() {}
 
 export async function inSpan(name, attributes, callback) {
   return tracer.startActiveSpan(name, async (span) => {
@@ -72,7 +49,9 @@ export async function inSpan(name, attributes, callback) {
 }
 
 export function recordRequest({ route, method, statusCode, tenantId }) {
-  requestCounter.add(1, { route, method, status_code: statusCode, tenant_id: tenantId || 'unknown' });
+  requestStats.requests += 1;
+  if (statusCode >= 500) requestStats.errors5xx += 1;
+  requestCounter.add(1, { route, method, status_code: String(statusCode), tenant_id: tenantId || 'unknown' });
 }
 
 export function recordRoomJoin({ tenantId, role }) {

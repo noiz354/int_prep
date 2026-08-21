@@ -1,52 +1,176 @@
-# Implementation Plan — SignalRoom Ready (Candidate Readiness & Coaching)
+# Implementation Plan: SignalRoom Production Readiness
 
 ## Overview
 
-Port the separate Candidate Readiness & Coaching bounded context ("SignalRoom Ready") from
-`21-8-26-tasks/extracted-workspace/` into this repository. The repo already contains the
-full 100-feature hiring-evaluation platform (Phase 1–5 service boundaries); the readiness
-context is entirely missing and is additive, non-destructive work.
+Close 37 gaps identified in the gap analysis across 6 domains (WebRTC, RAG/AI, Observability, Security, Infrastructure, Testing) to bring SignalRoom from adapter-ready to production-ready. Work is organized into 5 phases with vertical slicing — each phase delivers a working, testable capability.
 
-Product boundary: candidate preparation only. It must never provide covert live-assessment
-assistance, never auto-disposition a candidate, never infer protected traits, and must keep
-preparation data separate from hiring-evaluation data by default.
+## Architecture Decisions
 
-## Capability map
+### 1. TURN Server: Self-hosted coturn
+- **Decision:** Deploy coturn alongside existing infrastructure (already in `docker-compose.providers.yml`)
+- **Rationale:** Enterprise interviews behind corporate firewalls require TURN. coturn is the standard. Container already exists but is not wired to clients.
+- **Alternative considered:** Twilio TURN (managed, costs scale) — rejected for self-hosted control.
 
-| Module id | Responsibility | Depends on |
-|---|---|---|
-| cr-domain | Entities, policy guards, in-memory readiness service (source approval, plans, practice, coaches, handoff, opportunities, campaigns, consent, audit, export) | — |
-| cr-api | Express service (17 routes) with tenant/actor headers, idempotency, audit, preparation-only lockout | cr-domain |
-| cr-ai | FastAPI deterministic coaching scaffold (role intelligence, questions, feedback, handoff, materials), consent + tenant gates | cr-domain (contract) |
-| cr-web | Standalone Vite/React preparation UX (overview, role, practice, coaches, opportunities, trust) | cr-api contract (demo-mode seam) |
-| cr-docs | PRD, feature catalog, UAT, implementation status, context guide | — |
-| cr-skill | `candidate-readiness-coaching` agent skill | — |
+### 2. Observability: Extend existing OTel setup
+- **Decision:** Build on the existing `packages/observability` and `scripts/otel/` infrastructure rather than replacing it
+- **Rationale:** OTel SDK, auto-instrumentations, and structured logging already exist. Missing: Collector→Prometheus export, Tempo, Grafana datasource config, metrics middleware.
+- **Alternative considered:** Full LGTM stack like otel-example-nodejs — too heavy for initial deployment; start with Tempo + Grafana.
 
-Build order: cr-domain → cr-api → cr-ai → cr-web → cr-docs → cr-skill → root wiring.
+### 3. RAG: Add vector search to existing Career Vault
+- **Decision:** Extend `services/career-vault-rag/` with Qdrant integration and RBAC filters
+- **Rationale:** The RAG service already has tenant scoping, citation logic, and abstention. Needs real vector search, audit logging, and eval.
+- **Alternative considered:** Replace with ragdemo-style FastAPI — rejected; too much rework.
 
-## Architecture decisions
+### 4. WebRTC: Enhance existing P2P mesh
+- **Decision:** Keep P2P mesh, add TURN, connection recovery, recording
+- **Rationale:** P2P is already implemented with Socket.IO signaling. SFU (LiveKit) is blocked on provider decision. Maximize P2P production readiness.
+- **Alternative considered:** Switch to Stream SDK — rejected; vendor lock-in and cost.
 
-- **Additive port only.** Do not overwrite any existing `src/` or `apps/api/` file — they are
-  identical-or-newer than the workspace snapshot. Only missing directories are created.
-- **No new dependencies.** The scaffold intentionally reuses the root toolchain
-  (`express`, `zod`, `react`, `vite`, `node:test`) per the workspace `candidate-readiness/README.md`.
-- **Standalone web app.** `apps/candidate-readiness-web/` keeps its own Vite config on port 5190
-  (root Vite stays on 5190? — root uses 5190 per current `vite.config.js`; the workspace web app
-  also uses 5190 in its own config. Keep as shipped, it is a separate `npm --prefix` process).
-- **Truthful status.** CR features are scaffold/local-only until provider decisions; status docs
-  use the honest state model (mocked / local_only / provider_ready / staging_verified /
-  production_deployed / blocked_on_decision) per `MOCK-STUB-AUDIT.md`.
-- **Test integration.** Domain tests join `npm run test:contracts`; web build gets a root script.
+### 5. Security: Layer on top of existing patterns
+- **Decision:** Add CORS middleware, Helmet, rate limiting library, JWT revocation via Redis
+- **Rationale:** Manual security headers exist but are incomplete. In-memory rate limiting doesn't scale. Need proper middleware stack.
 
-## Risks and mitigations
+### 6. Infrastructure: Docker-first, no K8s yet
+- **Decision:** Production Dockerfiles + docker-compose for app. No Kubernetes yet.
+- **Rationale:** App has no Dockerfile at all. Start with containerization before orchestration.
+
+## Dependency Graph
+
+```
+Phase 1: Security Foundation
+    │
+    ├── CORS middleware + Helmet (no deps)
+    ├── Rate limiting with express-rate-limit (no deps)
+    ├── JWT revocation via Redis (needs Redis in compose)
+    └── TURN server wiring (needs coturn container)
+    │
+Phase 2: Observability (depends on Phase 1 for CORS/security)
+    │
+    ├── OTel bootstrap pattern (no deps beyond Phase 1)
+    ├── Metrics middleware (depends on OTel bootstrap)
+    ├── Collector → Prometheus export (no deps)
+    ├── Tempo deployment (no deps)
+    ├── Grafana datasource config (depends on Tempo + Prometheus)
+    └── SLO dashboards (depends on Grafana)
+    │
+Phase 3: RAG Hardening (depends on Phase 2 for audit logging)
+    │
+    ├── Qdrant vector search integration (no deps beyond Qdrant)
+    ├── RBAC filters from JWT (depends on Qdrant integration)
+    ├── AI audit logging (depends on OTel from Phase 2)
+    ├── Citation/provenance tracking (depends on Qdrant)
+    └── Eval framework (depends on all above)
+    │
+Phase 4: WebRTC Production (depends on Phase 1 for auth, Phase 2 for metrics)
+    │
+    ├── TURN server wiring to clients (depends on Phase 1)
+    ├── Connection state monitoring + ICE restart (no deps)
+    ├── Cloud recording to S3 (needs MinIO/S3)
+    ├── Participant cap enforcement (no deps)
+    └── Network quality indicators (depends on connection monitoring)
+    │
+Phase 5: Testing & Polish (depends on all above)
+    │
+    ├── Docker production hardening (no deps)
+    ├── Integration test environment (depends on Docker)
+    ├── Benchmark suite (depends on RAG + WebRTC being functional)
+    └── Structured logging with trace correlation (depends on Phase 2)
+```
+
+## Task List
+
+### Phase 1: Security Foundation (7 tasks)
+- [ ] Task 1: Add CORS middleware to Express API
+- [ ] Task 2: Add Helmet security headers middleware
+- [ ] Task 3: Replace in-memory rate limiting with express-rate-limit
+- [ ] Task 4: Add Redis-backed JWT revocation store
+- [ ] Task 5: Wire coturn TURN server to WebRTC clients
+- [ ] Task 6: Add server-side input validation on WebSocket signaling
+- [ ] Task 7: Add comprehensive request body size limits
+
+### Checkpoint: Security Foundation
+- [ ] All tests pass: `npm test`
+- [ ] Build succeeds: `npm run build`
+- [ ] CORS headers present on API responses
+- [ ] Rate limiting returns proper headers
+- [ ] TURN credentials accessible from client
+- [ ] Review with human before proceeding
+
+### Phase 2: Observability (6 tasks)
+- [ ] Task 8: Implement OTel bootstrap pattern for Express API
+- [ ] Task 9: Add metrics middleware (request duration, active requests)
+- [ ] Task 10: Configure OTel Collector → Prometheus metrics export
+- [ ] Task 11: Deploy Grafana Tempo for distributed tracing
+- [ ] Task 12: Configure Grafana datasources (Tempo + Prometheus cross-correlation)
+- [ ] Task 13: Create SLO dashboards in Grafana
+
+### Checkpoint: Observability
+- [ ] All tests pass
+- [ ] Build succeeds
+- [ ] Metrics visible in Prometheus
+- [ ] Traces visible in Tempo
+- [ ] Grafana dashboard shows request latency percentiles
+- [ ] Review with human before proceeding
+
+### Phase 3: RAG Hardening (5 tasks)
+- [ ] Task 14: Integrate Qdrant vector search into Career Vault RAG
+- [ ] Task 15: Add RBAC-aware Qdrant filters from JWT claims
+- [ ] Task 16: Implement AI audit logging (query, response, chunks, latency, user)
+- [ ] Task 17: Add citation/provenance tracking with structured citation objects
+- [ ] Task 18: Build RAG eval framework (retrieval + RBAC leak detection)
+
+### Checkpoint: RAG Hardening
+- [ ] All tests pass
+- [ ] Build succeeds
+- [ ] Vector search returns results with RBAC filtering
+- [ ] Audit log captures every AI query
+- [ ] Citations returned in structured format
+- [ ] Eval suite runs and reports metrics
+- [ ] Review with human before proceeding
+
+### Phase 4: WebRTC Production (5 tasks)
+- [ ] Task 19: Implement connection state monitoring + ICE restart
+- [ ] Task 20: Add cloud recording (WebRTC → S3 upload)
+- [ ] Task 21: Server-side participant cap enforcement
+- [ ] Task 22: Add network quality indicators (getStats → UI)
+- [ ] Task 23: Add auth verification on WebSocket signal relay
+
+### Checkpoint: WebRTC Production
+- [ ] All tests pass
+- [ ] Build succeeds
+- [ ] Connection state changes logged and displayed
+- [ ] ICE restart triggered on failure
+- [ ] Recording uploads to S3
+- [ ] Participant cap enforced server-side
+- [ ] Review with human before proceeding
+
+### Phase 5: Testing & Polish (4 tasks)
+- [ ] Task 24: Create production Dockerfiles (multi-stage, non-root, healthcheck)
+- [ ] Task 25: Create integration test environment (docker-compose)
+- [ ] Task 26: Add benchmark suite for RAG + WebRTC
+- [ ] Task 27: Add structured logging with trace correlation to error handler
+
+### Checkpoint: Complete
+- [ ] All acceptance criteria met across all phases
+- [ ] `npm test` passes
+- [ ] `npm run build` succeeds
+- [ ] Docker build succeeds
+- [ ] Ready for review
+
+## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
-|---|---|---|
-| Ported API headers (X-Tenant-Id etc.) are dev-only identity | High | Keep `development-scaffold` label + doc; production path documented as OIDC/SAML |
-| AI service is deterministic, not a real model | Medium | Explicit `model_version` + `boundary` + human-review fields; no production claim |
-| `crypto` global availability in Node 22 test env | Low | Node 22 exposes `crypto.randomUUID` globally; tests are node:test, not jsdom |
-| Vite port collision (5190 vs root 5190) | Low | Separate processes/prefix; verify build only (no dev server) in CI |
+|------|--------|------------|
+| TURN server config complexity | High | Start with coturn defaults, test behind corporate NAT |
+| Qdrant migration from keyword search | High | Run both keyword and vector in parallel, compare results |
+| OTel Collector config errors | Medium | Use proven configs from otel-example-nodejs reference |
+| S3 recording storage costs | Medium | Implement recording retention policy, configurable per tenant |
+| Redis dependency for JWT revocation | Medium | Fallback to in-memory if Redis unavailable (degraded mode) |
+| Docker build breaks existing dev flow | Low | Keep `npm run dev` as primary dev path, Docker for prod only |
 
-## Open questions
+## Open Questions
 
-- None blocking: port is scaffold-complete as shipped in the workspace snapshot.
+- [ ] Should we use LiveKit SFU when available, or stay P2P-only for v1?
+- [ ] What's the S3 bucket strategy: shared bucket with key prefix vs per-tenant bucket?
+- [ ] Should eval framework run in CI or as manual script?
+- [ ] Do we need browser-side OTel (frontend tracing) in v1?

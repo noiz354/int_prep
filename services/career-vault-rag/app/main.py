@@ -1,17 +1,21 @@
-"""Career Vault RAG Career Coach — deterministic retrieval scaffold.
+"""Career Vault RAG Career Coach -- vector search + deterministic fallback.
 
 The RAG layer is the reasoning layer over the candidate-owned Career Timeline.
 It never fabricates: every answer cites candidate-authorized, dated evidence or
-explicitly abstains. This module is a local, deterministic implementation of the
-retrieval/citation/abstention rules so the behaviour can be tested before a
-tenant-isolated vector provider is approved.
+explicitly abstains. This module supports Qdrant vector search with Ollama
+embeddings, falling back to deterministic keyword scoring when the vector
+store is unavailable.
 """
 
+import hashlib
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Literal
 
-MODEL_VERSION = "career-vault-rag-v0.1"
+from .vector_store import VectorHit, create_vector_store, DeterministicFallback, VectorStore
+
+MODEL_VERSION = "career-vault-rag-v0.2"
 REQUIRES_HUMAN_JUDGMENT = True
 
 FEEDBACK_THEMES = {
@@ -40,6 +44,20 @@ class Evidence:
 
 
 @dataclass
+class Citation:
+    citation_id: str
+    artifact_id: str
+    document_id: str
+    section: str
+    score: float
+    snippet: str
+    provenance: str
+    title: str
+    date: str
+    reason: str
+
+
+@dataclass
 class RagRequest:
     tenant_id: str
     candidate_id: str
@@ -47,15 +65,46 @@ class RagRequest:
     question: str
     evidence: list[Evidence] = field(default_factory=list)
     opportunity_id: str | None = None
+    role: str = "candidate"
 
 
 @dataclass
-class Citation:
-    artifact_id: str
-    title: str
-    date: str
-    excerpt: str
-    reason: str
+class AuditLogEntry:
+    query: str
+    response_summary: str
+    retrieved_chunks: list[str]
+    latency_ms: float
+    user_id: str
+    tenant_id: str
+    timestamp: str
+    citation_count: int
+    abstention: bool
+    retrieval_method: str
+
+
+_audit_log: list[AuditLogEntry] = []
+
+_vector_store: VectorStore | DeterministicFallback | None = None
+
+
+def get_vector_store() -> VectorStore | DeterministicFallback:
+    global _vector_store
+    if _vector_store is None:
+        _vector_store = create_vector_store()
+    return _vector_store
+
+
+def set_vector_store(store: VectorStore | DeterministicFallback) -> None:
+    global _vector_store
+    _vector_store = store
+
+
+def get_audit_log() -> list[AuditLogEntry]:
+    return list(_audit_log)
+
+
+def clear_audit_log() -> None:
+    _audit_log.clear()
 
 
 def assert_career_planning_context(request: RagRequest) -> None:
@@ -64,13 +113,11 @@ def assert_career_planning_context(request: RagRequest) -> None:
 
 
 def _excluded(evidence: Evidence) -> bool:
-    # The API layer enforces the exclusion list; the RAG layer also treats
-    # missing/blank content as non-retrievable.
     return not evidence.content.strip()
 
 
 def _score(evidence: Evidence, tokens: set[str]) -> int:
-    """Hybrid-ish deterministic score: structured filter + keyword overlap + recency + source quality."""
+    """Hybrid deterministic score: structured filter + keyword overlap + recency + source quality."""
     haystack = f"{evidence.title} {evidence.content} {evidence.competency} {evidence.opportunity_id or ''}".lower()
     overlap = len(tokens & set(haystack.split()))
     metadata_bonus = 0
@@ -81,9 +128,47 @@ def _score(evidence: Evidence, tokens: set[str]) -> int:
     return overlap * 10 + metadata_bonus + source_quality
 
 
-def retrieve(request: RagRequest, limit: int = 6) -> list[tuple[Evidence, int]]:
-    """Return (evidence, score) ranked by relevance, tenant/candidate-scoped by construction."""
+def _make_citation_id(artifact_id: str, content_hash: str, chunk_index: int = 0) -> str:
+    return f"cit-{artifact_id}-{content_hash[:8]}-{chunk_index}"
+
+
+def _provenance_id(evidence: Evidence) -> str:
+    content_hash = hashlib.sha256(evidence.content.encode()).hexdigest()[:12]
+    return f"prov-{evidence.artifact_id}-{content_hash}"
+
+
+def retrieve(request: RagRequest, limit: int = 6) -> list[tuple[Evidence, float]]:
+    """Return (evidence, score) ranked by relevance, tenant/candidate-scoped."""
     assert_career_planning_context(request)
+    store = get_vector_store()
+
+    # RBAC filters from JWT context
+    role_filters = {}
+    if request.role == "interviewer":
+        role_filters["visibility"] = "interviewer_visible"
+    elif request.role == "candidate":
+        role_filters["visibility"] = "candidate_visible"
+
+    # Try vector search first
+    if isinstance(store, VectorStore) and store.is_available:
+        hits = store.search(
+            query=request.question,
+            tenant_id=request.tenant_id,
+            candidate_id=request.candidate_id,
+            limit=limit,
+            role_filters=role_filters,
+        )
+        if hits:
+            evidence_map = {ev.artifact_id: ev for ev in request.evidence}
+            results: list[tuple[Evidence, float]] = []
+            for hit in hits:
+                ev = evidence_map.get(hit.payload.get("artifact_id", ""))
+                if ev and not _excluded(ev):
+                    results.append((ev, hit.score))
+            if results:
+                return results[:limit]
+
+    # Fallback: deterministic keyword scoring
     tokens = {word.strip(".,?!;:()") for word in request.question.lower().split() if len(word.strip(".,?!;:()")) > 2}
     ranked = []
     for evidence in request.evidence:
@@ -93,20 +178,51 @@ def retrieve(request: RagRequest, limit: int = 6) -> list[tuple[Evidence, int]]:
             continue
         if request.opportunity_id and evidence.opportunity_id and evidence.opportunity_id != request.opportunity_id:
             continue
-        ranked.append((evidence, _score(evidence, tokens)))
+        ranked.append((evidence, float(_score(evidence, tokens))))
     ranked.sort(key=lambda item: item[1], reverse=True)
     return ranked[:limit]
 
 
-def _cite(evidence: Evidence, reason: str) -> dict:
+def _cite(evidence: Evidence, reason: str, score: float = 0.0) -> dict:
     excerpt = evidence.content.strip().replace("\n", " ")[:220]
+    prov_id = _provenance_id(evidence)
+    content_hash = hashlib.sha256(evidence.content.encode()).hexdigest()[:16]
     return {
+        "citation_id": _make_citation_id(evidence.artifact_id, content_hash),
         "artifact_id": evidence.artifact_id,
+        "document_id": evidence.artifact_id,
+        "section": evidence.competency or evidence.kind,
+        "score": round(score, 4),
+        "snippet": excerpt,
+        "provenance": prov_id,
         "title": evidence.title,
         "date": evidence.date,
-        "excerpt": excerpt,
         "reason": reason,
     }
+
+
+def _log_audit(
+    query: str,
+    result: dict,
+    user_id: str,
+    tenant_id: str,
+    latency_ms: float,
+    retrieval_method: str,
+) -> None:
+    """Record an audit entry for the RAG query."""
+    entry = AuditLogEntry(
+        query=query,
+        response_summary=result.get("answer") or result.get("reason", ""),
+        retrieved_chunks=[c.get("artifact_id", "") for c in result.get("citations", [])],
+        latency_ms=round(latency_ms, 2),
+        user_id=hashlib.sha256(user_id.encode()).hexdigest()[:8] if user_id else "unknown",
+        tenant_id=hashlib.sha256(tenant_id.encode()).hexdigest()[:8] if tenant_id else "unknown",
+        timestamp=datetime.now(timezone.utc).isoformat(),
+        citation_count=len(result.get("citations", [])),
+        abstention=result.get("abstention", True),
+        retrieval_method=retrieval_method,
+    )
+    _audit_log.append(entry)
 
 
 def cluster_feedback_themes(evidence_list: list[Evidence]) -> list[dict]:
@@ -129,11 +245,16 @@ def cluster_feedback_themes(evidence_list: list[Evidence]) -> list[dict]:
 
 
 def answer_question(request: RagRequest) -> dict:
-    """PRD §8: cited answer or abstention."""
+    """PRD: cited answer or abstention with audit logging."""
     assert_career_planning_context(request)
+    start = time.monotonic()
+    store = get_vector_store()
+    retrieval_method = "vector" if isinstance(store, VectorStore) and store.is_available else "deterministic-fallback"
+
     ranked = retrieve(request)
+
     if not ranked:
-        return {
+        result = {
             "answer": None,
             "abstention": True,
             "reason": "insufficient_permitted_evidence",
@@ -142,31 +263,39 @@ def answer_question(request: RagRequest) -> dict:
             "suggestedNextAction": "Add candidate-owned feedback/notes or request human coaching.",
             "confidence": 0.0,
             "modelVersion": MODEL_VERSION,
-            "provider": "deterministic-fallback",
-            "retrieval": "local-keyword",
-            "fallback": True,
+            "provider": "deterministic-fallback" if retrieval_method == "deterministic-fallback" else "qdrant-vector",
+            "retrieval": retrieval_method,
+            "fallback": retrieval_method == "deterministic-fallback",
             "requiresHumanJudgment": REQUIRES_HUMAN_JUDGMENT,
         }
+        latency_ms = (time.monotonic() - start) * 1000
+        _log_audit(request.question, result, request.candidate_id, request.tenant_id, latency_ms, retrieval_method)
+        return result
+
     top = ranked[0][0]
     # Low overlap means weak grounding: abstain rather than fabricate.
     if ranked[0][1] < 14:
-        return {
+        result = {
             "answer": None,
             "abstention": True,
             "reason": "low_grounding",
             "message": "The available candidate-authorized evidence is not specific enough to answer that. Add relevant notes or feedback, or ask a human coach.",
-            "citations": [_cite(top, "low relevance candidate evidence")],
+            "citations": [_cite(top, "low relevance candidate evidence", ranked[0][1])],
             "suggestedNextAction": "Capture more candidate-owned evidence or request human coaching.",
             "confidence": 0.2,
             "modelVersion": MODEL_VERSION,
-            "provider": "deterministic-fallback",
-            "retrieval": "local-keyword",
-            "fallback": True,
+            "provider": "deterministic-fallback" if retrieval_method == "deterministic-fallback" else "qdrant-vector",
+            "retrieval": retrieval_method,
+            "fallback": retrieval_method == "deterministic-fallback",
             "requiresHumanJudgment": REQUIRES_HUMAN_JUDGMENT,
         }
-    citations = [_cite(evidence, f"score {score}") for evidence, score in ranked[:3]]
+        latency_ms = (time.monotonic() - start) * 1000
+        _log_audit(request.question, result, request.candidate_id, request.tenant_id, latency_ms, retrieval_method)
+        return result
+
+    citations = [_cite(evidence, f"score {score}", score) for evidence, score in ranked[:3]]
     confidence = min(0.95, 0.4 + ranked[0][1] / 100)
-    return {
+    result = {
         "answer": f"Based on your candidate-owned records, the most relevant evidence is '{top.title}' ({top.date}). "
                   f"This is a {top.kind} record from {top.source}.",
         "abstention": False,
@@ -178,19 +307,29 @@ def answer_question(request: RagRequest) -> dict:
             "inference": "This answer is an AI inference over candidate-authorized evidence only.",
         },
         "modelVersion": MODEL_VERSION,
+        "provider": "deterministic-fallback" if retrieval_method == "deterministic-fallback" else "qdrant-vector",
+        "retrieval": retrieval_method,
+        "fallback": retrieval_method == "deterministic-fallback",
         "requiresHumanJudgment": REQUIRES_HUMAN_JUDGMENT,
     }
+    latency_ms = (time.monotonic() - start) * 1000
+    _log_audit(request.question, result, request.candidate_id, request.tenant_id, latency_ms, retrieval_method)
+    return result
 
 
 def create_seven_day_plan(request: RagRequest, target_opportunity_id: str | None = None) -> dict:
     """PRD E-34: seven-day preparation plan grounded in role, feedback, practice, and calendar evidence."""
     assert_career_planning_context(request)
+    start = time.monotonic()
+    store = get_vector_store()
+    retrieval_method = "vector" if isinstance(store, VectorStore) and store.is_available else "deterministic-fallback"
+
     plan_request = request
     if target_opportunity_id:
         plan_request = RagRequest(**{**request.__dict__, "opportunity_id": target_opportunity_id})
     ranked = retrieve(plan_request, limit=8)
     if not ranked:
-        return {
+        result = {
             "plan": None,
             "abstention": True,
             "reason": "insufficient_permitted_evidence",
@@ -199,15 +338,19 @@ def create_seven_day_plan(request: RagRequest, target_opportunity_id: str | None
             "suggestedNextAction": "Save a target opportunity and add notes/feedback first.",
             "confidence": 0.0,
             "modelVersion": MODEL_VERSION,
-            "provider": "deterministic-fallback",
-            "retrieval": "local-keyword",
-            "fallback": True,
+            "provider": "deterministic-fallback" if retrieval_method == "deterministic-fallback" else "qdrant-vector",
+            "retrieval": retrieval_method,
+            "fallback": retrieval_method == "deterministic-fallback",
             "requiresHumanJudgment": REQUIRES_HUMAN_JUDGMENT,
         }
+        latency_ms = (time.monotonic() - start) * 1000
+        _log_audit("seven-day-plan", result, request.candidate_id, request.tenant_id, latency_ms, retrieval_method)
+        return result
+
     themes = cluster_feedback_themes(request.evidence)
-    citations = [_cite(evidence, f"plan evidence score {score}") for evidence, score in ranked[:4]]
+    citations = [_cite(evidence, f"plan evidence score {score}", score) for evidence, score in ranked[:4]]
     focus = themes[0]["theme"] if themes else "general"
-    return {
+    result = {
         "plan": {
             "days": [
                 {"day": 1, "focus": f"Address '{focus}' feedback theme", "action": "Review the cited feedback and rewrite one answer with concrete evidence."},
@@ -229,5 +372,11 @@ def create_seven_day_plan(request: RagRequest, target_opportunity_id: str | None
         "citations": citations,
         "confidence": 0.7,
         "modelVersion": MODEL_VERSION,
+        "provider": "deterministic-fallback" if retrieval_method == "deterministic-fallback" else "qdrant-vector",
+        "retrieval": retrieval_method,
+        "fallback": retrieval_method == "deterministic-fallback",
         "requiresHumanJudgment": REQUIRES_HUMAN_JUDGMENT,
     }
+    latency_ms = (time.monotonic() - start) * 1000
+    _log_audit("seven-day-plan", result, request.candidate_id, request.tenant_id, latency_ms, retrieval_method)
+    return result

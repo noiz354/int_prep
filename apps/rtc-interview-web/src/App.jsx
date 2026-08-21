@@ -2,12 +2,19 @@ import { useEffect, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
 import { createLoopbackPeer, mediaStateLabel, requestMediaTracks } from './lib/rtcClient.js';
 import { createMeshController } from '../../../src/lib/rtcMesh.js';
+import { createRecordingClient } from '../../../src/lib/recordingClient.js';
 
 const QUALITY_LABEL = (sample) => {
   if (!sample) return 'Waiting for stats…';
-  if (sample.packetLoss > 3 || sample.latencyMs > 500) return 'Poor';
-  if (sample.packetLoss > 1 || sample.latencyMs > 200) return 'Fair';
+  if (sample.packetLoss > 3 || sample.latencyMs > 1000) return 'Poor';
+  if (sample.packetLoss > 1 || sample.latencyMs > 500) return 'Fair';
   return 'Good';
+};
+
+const QUALITY_COLOR = (label) => {
+  if (label === 'Poor') return 'red';
+  if (label === 'Fair') return 'yellow';
+  return 'green';
 };
 
 function readSession() {
@@ -19,16 +26,20 @@ function readSession() {
   return null;
 }
 
-function QualityPanel({ sample, connection, iceState, onRestartIce }) {
+function QualityPanel({ sample, connection, iceState, onRestartIce, recoveryState }) {
+  const qualityLabel = QUALITY_LABEL(sample);
+  const qualityColor = QUALITY_COLOR(qualityLabel);
   return <section className="rtc-panel quality-panel">
     <h2>Media quality telemetry</h2>
     <div className="rtc-quality-grid">
       <article><span>RTT</span><strong>{sample?.latencyMs != null ? `${sample.latencyMs} ms` : '—'}</strong></article>
       <article><span>Jitter</span><strong>{sample?.jitterMs != null ? `${sample.jitterMs} ms` : '—'}</strong></article>
       <article><span>Packet loss</span><strong>{sample?.packetLoss != null ? `${sample.packetLoss}%` : '—'}</strong></article>
-      <article><span>Overall</span><strong className={`quality-${QUALITY_LABEL(sample).toLowerCase()}`}>{QUALITY_LABEL(sample)}</strong></article>
+      <article><span>Quality</span><strong className={`quality-${qualityLabel.toLowerCase()}`} style={{ color: qualityColor }}>{qualityLabel}</strong></article>
     </div>
     <div className="rtc-state-row"><span>Peer connection: <b>{connection || 'new'}</b></span><span>ICE: <b>{iceState || 'new'}</b></span></div>
+    {recoveryState === 'reconnecting' && <div className="rtc-banner reconnecting">Reconnecting…</div>}
+    {recoveryState === 'failed' && <div className="rtc-banner failed">Connection lost</div>}
     <button className="rtc-btn" onClick={onRestartIce}>Restart ICE (reconnect test)</button>
     <p className="rtc-micro">Samples are sent to <code>/api/data/telemetry</code> every 2s. This room is <b>peer-to-peer</b>, not LiveKit.</p>
   </section>;
@@ -47,6 +58,9 @@ export function App() {
   const [presence, setPresence] = useState([]);
   const [roomStatus, setRoomStatus] = useState('disconnected');
   const [remoteStream, setRemoteStream] = useState(null);
+  const [recoveryState, setRecoveryState] = useState(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingClient, setRecordingClient] = useState(null);
   const videoRef = useRef(null);
   const remoteRef = useRef(null);
   const streamRef = useRef(null);
@@ -86,6 +100,7 @@ export function App() {
       sendSignal: (kind, payload) => socket.emit('room.signal', { interviewId, kind, payload }),
       onRemoteStream: (_id, stream) => setRemoteStream(stream),
       onConnectionState: (state) => setConnection(state),
+      onRecoveryStateChange: (state) => setRecoveryState(state),
     });
     socket.on('connect', () => {
       setRoomStatus('connected');
@@ -154,6 +169,30 @@ export function App() {
     } catch { /* ignore */ }
   };
 
+  const toggleRecording = async () => {
+    if (isRecording) {
+      // Stop recording
+      const rec = await recordingClient?.stop();
+      setIsRecording(false);
+      setRecordingClient(null);
+      return;
+    }
+    // Start recording
+    try {
+      const client = createRecordingClient({ interviewId, onError: (err) => console.error('Recording error:', err) });
+      await client.start();
+      const stream = streamRef.current;
+      if (stream) {
+        client.attachStream(stream);
+        client.startCapture();
+      }
+      setRecordingClient(client);
+      setIsRecording(true);
+    } catch (err) {
+      console.error('Failed to start recording:', err);
+    }
+  };
+
   return <main className="rtc-shell">
     <header className="rtc-topbar"><div><span className="rtc-eyebrow">SIGNALROOM RTC INTERVIEW</span><h1>Peer-to-peer WebRTC room</h1></div><span className={`rtc-badge room-${roomStatus}`}>{roomStatus}</span></header>
     <p className="rtc-honesty">Not an SFU. LiveKit is not connected. Join the same <code>interview</code> id from Live Studio. Current room: <b>{interviewId}</b></p>
@@ -174,11 +213,12 @@ export function App() {
           <div className="rtc-controls">
             <button className={`rtc-btn ${muted ? 'is-off' : ''}`} onClick={toggleMute}>{muted ? 'Unmute' : 'Mute'}</button>
             <button className={`rtc-btn ${cameraOn ? '' : 'is-off'}`} onClick={toggleCamera}>{cameraOn ? 'Camera on' : 'Camera off'}</button>
+            <button className={`rtc-btn ${isRecording ? 'recording' : ''}`} onClick={toggleRecording}>{isRecording ? 'Stop recording' : 'Start recording'}</button>
             <button className="rtc-btn danger" onClick={() => { stopEverything(); setMediaState('idle'); }}>Leave room</button>
           </div>
         </div>
       )}
-      {mediaState === 'ready' && <QualityPanel sample={sample} connection={connection} iceState={iceState} onRestartIce={restartIce} />}
+      {mediaState === 'ready' && <QualityPanel sample={sample} connection={connection} iceState={iceState} onRestartIce={restartIce} recoveryState={recoveryState} />}
     </section>
     <section className="rtc-presence"><b>Room presence ({presence.length})</b>{presence.map((p) => <span key={p.userId}>{p.name} · {p.roles.join(', ')}</span>)}</section>
   </main>;

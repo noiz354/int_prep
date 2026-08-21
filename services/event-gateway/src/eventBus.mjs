@@ -45,6 +45,8 @@ export const allowedEventTypes = new Set([
   'media.whiteboard.annotated',
   'media.whiteboard.ended',
   'media.enhancement.applied',
+  'recording.started',
+  'recording.completed',
   'cdc.stream.created',
   'cdc.record.captured',
   'cdc.replay.requested',
