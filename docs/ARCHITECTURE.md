@@ -37,6 +37,8 @@
 | Security & Trust | Trust Center | API middleware + policy contracts | Tenant checks, mutation idempotency, headers, consent boundary, audit UX |
 | DevOps & Reliability | Reliability | deployment contracts | SLO/runbook/release UI; service code is designed for deployment adapters |
 | Enterprise Operations | Integrations | connector/webhook contracts | Connector management and no-code workflow UX with labeled mocks |
+| Candidate Readiness | `apps/candidate-readiness-web` | `services/candidate-readiness-api`, `services/candidate-coaching-ai`, `packages/candidate-readiness-domain` | Preparation-only readiness plans, practice, verified coach matching, handoff; in-memory policy scaffold |
+| Career Vault & RAG | `apps/career-vault-web` | `services/career-vault-api`, `services/career-vault-rag`, `packages/career-vault-domain` | Candidate-private timeline + artifact vault + deterministic cited RAG coach; connector/vector seams labeled |
 
 ## Event contract
 

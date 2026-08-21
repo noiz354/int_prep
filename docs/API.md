@@ -228,6 +228,68 @@ Available domains are:
 
 The server rejects unknown domains/actions, oversized/non-object payloads, unauthorized principals, and repeated side effects. It records the action in the audit/event boundary and returns a deterministic result that states whether human review or external provider setup is required.
 
+## Candidate Readiness API
+
+Separate bounded context under `services/candidate-readiness-api/` (port `8790`). See
+`docs/IMPLEMENTATION-CANDIDATE-READINESS.md` for the honest status. Routes use the same
+header identity seam (`X-Tenant-Id`, `X-Actor-Id`, `X-Actor-Role`) and require
+`Idempotency-Key` for mutations. Boundary: `preparation_only`.
+
+| Area | Routes | Purpose |
+|---|---|---|
+| Profiles | `POST /v1/profiles` | Candidate preferences, skills, languages, time zone, accessibility |
+| Job descriptions | `POST /v1/job-descriptions`, `GET /v1/job-descriptions/:jobId/intelligence` | Authorized JD intake and role intelligence pack |
+| Readiness plans | `POST /v1/readiness-plans`, `GET /v1/readiness-plans/:planId`, `POST /v1/readiness-plans/:planId/milestones`, `POST /v1/readiness-plans/:planId/device-ready` | Plan, milestones, device checklist |
+| Practice | `POST /v1/stories`, `POST /v1/practice-sessions` | Evidence library and preparation-only practice feedback |
+| Coaches | `POST /v1/coaches`, `POST /v1/coach-matches`, `POST /v1/coach-bookings`, `POST /v1/handoffs` | Verified coach directory, matching, booking, candidate-controlled handoff |
+| Opportunities | `POST /v1/opportunities`, `POST /v1/applications`, `POST /v1/campaigns` | Opportunity tracking, review-before-send applications, safe campaigns |
+| Trust | `POST /v1/consents`, `GET /v1/dashboard`, `GET /v1/data-export`, `GET /v1/audit` | Consent, dashboard, export, audit |
+
+## Candidate Career Vault & RAG API
+
+Separate bounded context under `services/career-vault-api/` (port `8792`). Same header
+identity seam and `Idempotency-Key` requirement. Boundary: `candidate_private_default`;
+every artifact is private to the candidate by default, and `live_assessment` context is
+rejected. Connectors and vector retrieval are `blocked-on-provider-decision` seams; the RAG
+service (`services/career-vault-rag/`, port `8002`) is a deterministic, cited-retrieval
+scaffold.
+
+| Area | Routes | Purpose |
+|---|---|---|
+| Timeline | `GET/POST /v1/timeline` | Time-ordered candidate career events with provenance |
+| Opportunities | `GET/POST /v1/opportunities`, `POST /v1/opportunities/:id/status` | Manual opportunity tracking, status transitions, duplicate detection |
+| Artifact vault | `GET/POST /v1/artifacts`, `GET /v1/artifacts/:id`, `POST /v1/artifacts/:id/exclude` | Candidate-owned notes/feedback/recordings, consent + retention, retrieval exclusion |
+| Email import | `POST /v1/email/import`, `GET /v1/email/imports`, `POST /v1/email/imports/:id/review` | Review-before-save import of application receipts; approve/reject/correct per message |
+| Consent & sharing | `POST /v1/consents`, `POST /v1/connectors`, `POST /v1/shares` | Consent choices, review-before-import connector registration, granular sharing |
+| RAG Career Coach | `POST /v1/rag/ask`, `POST /v1/rag/plan` | Cited answers and seven-day plans over candidate-owned artifacts (deterministic scaffold) |
+| Data rights | `GET /v1/dashboard`, `POST /v1/data-export`, `POST /v1/data-deletion`, `GET /v1/audit` | Candidate dashboard, export, deletion propagation, audit |
+| Provider connections | `GET /v1/providers`, `POST /v1/providers/:id` | List disable/connect/blocked status; enable or disable a connection (candidate-controlled) |
+
+Provider connection model: every external capability is an opt-in connection.
+`GET /v1/providers` returns the catalog with `enabled`, `available`, `action`
+(`disable` | `connect` | `blocked`), and a truthful `reason`. Enabling a
+`blocked_on_provider_decision` provider returns `422` until a provider is selected.
+Disabling a connection takes effect immediately: `email` disabled blocks
+`POST /v1/email/import` (`409`); `rag_coach` disabled blocks `POST /v1/rag/ask` and
+`/v1/rag/plan` (`409`). Enable/disable is audit logged.
+
+Email import contract: every message is held `awaiting_review`; only an explicit
+`approve` (or `correct` with title/company overrides) creates an opportunity and timeline
+event. `reject` creates nothing. Raw email bodies are never written to audit logs; a
+connector is required (`POST /v1/connectors`) with candidate-selected eligible folders and
+consent before any import is accepted.
+
+### RAG Career Coach (Python, port `8002`)
+
+| Endpoint | Gate | Behavior |
+|---|---|---|
+| `POST /v1/rag/ask` | candidate + tenant + career-planning context | Cited answer over candidate-owned evidence, or abstention with next step |
+| `POST /v1/rag/plan` | candidate + tenant + career-planning context | Seven-day preparation plan grounded in role/feedback/practice/calendar evidence |
+
+Every RAG response carries `modelVersion`, `confidence`, `requiresHumanJudgment: true`,
+mandatory citations (or an explicit `abstention`), and separates fact, reflection, and
+inference. `live_assessment` returns `409`.
+
 ## Python AI adapter
 
 Base URL: `http://localhost:8788`

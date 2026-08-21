@@ -1,5 +1,43 @@
 # Implementation Status — 100-Feature PRD
 
+## Candidate Readiness & Coaching — separate bounded context
+
+The candidate-owned preparation product ("SignalRoom Ready") is scaffolded as its own
+context: `candidate-readiness/` guide, `packages/candidate-readiness-domain/`,
+`services/candidate-readiness-api/`, `services/candidate-coaching-ai/`, and
+`apps/candidate-readiness-web/`. Full feature catalog (CR-01…CR-48), PRD, and UAT plan are
+in `docs/FEATURES-Candidate-Readiness-Coaching.md`, `docs/PRD-Candidate-Readiness-Coaching.md`,
+and `docs/UAT-Candidate-Readiness-Coaching.md`; honest state labels are in
+`docs/IMPLEMENTATION-CANDIDATE-READINESS.md` and `docs/MOCK-STUB-AUDIT.md`.
+
+Readiness data is separate from hiring-evaluation data by default. The coaching product is
+preparation-only: `live_assessment` context is rejected at every API/AI boundary, no hiring
+decision is automated, and candidate sharing is granular and candidate-controlled.
+
+## Candidate Career Vault & RAG Planner — separate bounded context
+
+The candidate-owned Career Vault ("Compass Vault") is scaffolded as its own context:
+`packages/career-vault-domain/`, `services/career-vault-api/`,
+`services/career-vault-rag/`, and `apps/career-vault-web/`. PRD and UAT are in
+`docs/PRD-Candidate-Career-Vault-RAG.md` and `docs/UAT-Candidate-Career-Vault-RAG.md`.
+
+| Capability | Status |
+|---|---|
+| Career Timeline (opportunities, events, status transitions, duplicate detection, action inbox) | Local scaffold, tested (CV-01) |
+| Artifact Vault (notes/feedback/recordings, consent + retention, provenance, private-by-default) | Local scaffold, tested (CV-02/03/04) |
+| Email import with review-before-save (eligible folders, consent, approve/reject/correct, no raw body in audit) | Local scaffold, 7 tests (CV-05/06/18/20) |
+| Retrieval exclusion ("do not use for future plans") | Local scaffold, audited (CV-11) |
+| Granular candidate-controlled sharing; employer evaluation data excluded | Local scaffold, tested (CV-12) |
+| Export / deletion propagation (artifacts, transcript, index, derived plans) | Local scaffold, tested (CV-14/15) |
+| Cross-tenant/cross-candidate denial | Local scaffold, tested (CV-16) |
+| Real-assessment lockout | Enforced in domain + API + RAG (CV-17) |
+| RAG Career Coach: cited answers, abstention, feedback themes, seven-day plan | Deterministic scaffold, 9 JS + 9 Python tests (CV-08/09/10) |
+| Email/calendar OAuth connectors, encrypted object storage, vector embeddings | `blocked-on-provider-decision` seams (review-before-import contract implemented) |
+
+The RAG layer is the reasoning layer, not the system of record: the timeline is the system
+of record, and every RAG answer carries citations, confidence, model version, and
+`requiresHumanJudgment: true` or explicitly abstains.
+
 ## What this delivery means
 
 The requested **production-quality vertical slice** is implemented as a runnable product experience with working local interactions, API/event contracts, and provider adapters. The 100-feature PRD remains the source of truth in `PRD-100-Features.md` and is rendered in-app through **Feature Catalog**.

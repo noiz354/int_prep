@@ -50,6 +50,7 @@ On-demand skills live in `.agents/skills/` and are linked for `.claude/skills/` 
 | Need | Skill |
 |---|---|
 | Orient / plan a task | `project-orientation`, `planning-and-task-breakdown` |
+| Candidate Readiness & Coaching work | `candidate-readiness-coaching` (see `candidate-readiness/AGENTS.md`) |
 | Clarify requirements first | `interview-me`, `idea-refine`, `spec-driven-development` |
 | React UI or interaction | `react-experience`, `frontend-ui-engineering` |
 | Candidate setup, consent, a11y | `candidate-portal-accessibility`, `accessibility` |

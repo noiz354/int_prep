@@ -1,8 +1,50 @@
 # SignalRoom — Project Progress
 
-> **Last updated:** 20 August 2026 (WIB)  
+> **Last updated:** 21 August 2026 (WIB)  
 > **PRD feature-foundation coverage:** **100 / 100 (100%)**  
 > **Delivery truth:** Every PRD item has a tested local foundation or provider-ready adapter. This does **not** mean external vendors are already production deployed.
+
+## SignalRoom Ready — Candidate Readiness & Coaching (new bounded context)
+
+A separate candidate-owned preparation product is now scaffolded in this repository
+(`candidate-readiness/`, `apps/candidate-readiness-web/`,
+`services/candidate-readiness-api/`, `services/candidate-coaching-ai/`,
+`packages/candidate-readiness-domain/`). It is **preparation-only**: it never operates in
+a live assessment, never auto-dispositions a candidate, and keeps preparation data separate
+from hiring-evaluation data by default.
+
+| Area | Status | Production replacement required |
+|---|---|---|
+| Domain service (plans, practice, coaches, handoff, opportunities, consent, export) | ✅ Local in-memory policy scaffold (6 tests) | Persistent tenant-scoped repository + migrations |
+| Readiness API (17 routes) | ✅ Development scaffold (header identity, idempotency, audit) | OIDC/SAML middleware, durable persistence, event gateway |
+| AI coaching (FastAPI) | ✅ Deterministic consent/boundary-safe scaffold | Approved model/RAG/ASR provider, evaluation + human review |
+| Readiness web (6 screens) | ✅ Standalone Vite build (69.5 KB gzip JS) | Approved design-system/API auth integration |
+| Docs (PRD, FEATURES, UAT, IMPLEMENTATION) | ✅ Ported and traceable to CR-01…CR-48 / UAT-01…UAT-26 | — |
+
+Feature-level truth labels live in `docs/IMPLEMENTATION-CANDIDATE-READINESS.md` and
+`docs/MOCK-STUB-AUDIT.md`; UAT P0 scenarios are not yet executed against real providers.
+
+## Compass Vault — Candidate Career Vault & RAG Planner (new bounded context)
+
+A second candidate-owned product is scaffolded: a private, time-ordered **Career Timeline**
+(system of record) plus an **Artifact Vault** and a deterministic **RAG Career Coach**
+(`docs/PRD-Candidate-Career-Vault-RAG.md`, `docs/UAT-Candidate-Career-Vault-RAG.md`).
+Candidate-private by default; sharing is explicit, granular, and audited. Live-assessment
+lockout is enforced at every API/AI boundary.
+
+| Area | Status | Production replacement required |
+|---|---|---|
+| Domain (timeline, vault, consent, retention, export/delete, audit) | ✅ Local in-memory policy scaffold (14 tests) | Persistent tenant-scoped repository + migrations |
+| Email import (review-before-save, CV-05/06/18/20) | ✅ Local scaffold (7 tests) | Gmail/Microsoft OAuth connector + real inbox parsing |
+| RAG Career Coach (JS domain + FastAPI) | ✅ Deterministic cited-retrieval scaffold (9 JS + 9 Python tests) | Approved vector store + model/RAG gateway, evaluation suite |
+| Career Vault API (Express, 8792) | ✅ Development scaffold (header identity, idempotency, audit; rag + email routes) | OIDC/SAML middleware, durable persistence, event gateway |
+| Career Vault web (4 screens) | ✅ Standalone Vite build (67.1 KB gzip JS) | Approved design-system/API auth integration |
+| Provider connections (disable/connect/blocked) | ✅ Candidate-controlled registry + API + UI; gates RAG & email import | Real provider credentials/decisions |
+| Docs (PRD, UAT) | ✅ Ported; traceable to CV-01…CV-20 | — |
+
+Email/calendar OAuth connectors and encrypted object storage remain
+`blocked-on-provider-decision` seams (review-before-import contract is implemented and
+tested). UAT P0 scenarios are not yet executed against real providers.
 
 ## Executive status
 

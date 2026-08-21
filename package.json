@@ -10,10 +10,17 @@
     "api": "node apps/api/src/server.js",
     "generate:features": "node scripts/generate-feature-data.mjs",
     "test": "npm run test:contracts && npm run test:ui",
-    "test:contracts": "node --test apps/api/test/*.test.mjs services/event-gateway/test/*.test.mjs",
+    "test:contracts": "node --test apps/api/test/*.test.mjs services/event-gateway/test/*.test.mjs packages/candidate-readiness-domain/test/*.test.mjs packages/career-vault-domain/test/*.test.mjs",
     "test:ui": "vitest run",
     "skills:check": "node scripts/validate-agent-skills.mjs",
-    "skills:list": "find .agents/skills -mindepth 2 -maxdepth 2 -name SKILL.md | sort"
+    "skills:list": "find .agents/skills -mindepth 2 -maxdepth 2 -name SKILL.md | sort",
+    "candidate:readiness:web:build": "npm --prefix apps/candidate-readiness-web run build",
+    "candidate:readiness:api": "npm --prefix services/candidate-readiness-api run dev",
+    "candidate:readiness:domain:test": "npm --prefix packages/candidate-readiness-domain run test",
+    "career:vault:web:build": "npm --prefix apps/career-vault-web run build",
+    "career:vault:api": "npm --prefix services/career-vault-api run dev",
+    "career:vault:domain:test": "npm --prefix packages/career-vault-domain run test",
+    "career:vault:rag:test": "cd services/career-vault-rag && python3 -m unittest test_rag"
   },
   "dependencies": {
     "@opentelemetry/api": "^1.9.1",
