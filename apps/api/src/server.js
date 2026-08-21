@@ -3,7 +3,9 @@ import express from 'express';
 import { Server as SocketIOServer } from 'socket.io';
 import { z } from 'zod';
 import { featureCatalog } from '../../../src/data/features.js';
-import { createEvent, MemoryEventBus } from '../../../services/event-gateway/src/eventBus.mjs';
+import { createEvent } from '../../../services/event-gateway/src/eventBus.mjs';
+import { createEventPlane } from '../../../services/event-gateway/src/eventPlane.mjs';
+import { createProviderHealth } from './providerHealth.mjs';
 import { randomBytes } from 'node:crypto';
 import { attachRevocationStore, demoLoginEnabled, issueForPrincipal, loginDemo, requireAuthentication, revokeSession, verifySession } from './auth.mjs';
 import { exchangeAuthorizationCode, oidcAuthorizationUrl, oidcConfig } from './oidc.mjs';
@@ -18,14 +20,14 @@ import { createMediaServices } from './mediaServices.mjs';
 import { createDataPlatformServices } from './dataPlatformServices.mjs';
 import { createAiServices } from './aiServices.mjs';
 import { createSecurityServices } from './securityServices.mjs';
-import { inSpan, recordMediaJoin, recordMediaQuality, recordRequest, recordRoomJoin, recordRoomJoinSignal, requestLogger, startTelemetry, stopTelemetry } from './telemetry.mjs';
+import { inSpan, otlpConfig, recordMediaJoin, recordMediaQuality, recordRequest, recordRoomJoin, recordRoomJoinSignal, requestLogger, requestSnapshot, startTelemetry, stopTelemetry } from './telemetry.mjs';
 import { parseRoomSignal } from './realtimeSignal.mjs';
 
 const app = express();
 const httpServer = createServer(app);
 const port = Number(process.env.PORT || 8787);
 const tenantId = 'northstar';
-const events = new MemoryEventBus();
+const events = createEventPlane();
 const demoSeed = [
   { id: 'int-2048', tenantId, candidateName: 'Alex Morgan', role: 'Senior Frontend Engineer', stage: 'Technical deep dive', scheduledAt: '2026-08-20T09:30:00+07:00', status: 'live', scorecards: [], consentHistory: [], lifecycle: [{ from: 'checked_in', to: 'live', at: '2026-08-20T02:30:00.000Z' }] },
   { id: 'int-2051', tenantId, candidateName: 'Nadia Rahman', role: 'Data Platform Manager', stage: 'Leadership conversation', scheduledAt: '2026-08-20T11:00:00+07:00', status: 'scheduled', scorecards: [], consentHistory: [], lifecycle: [{ from: 'draft', to: 'scheduled', at: '2026-08-19T02:30:00.000Z' }] },
@@ -150,6 +152,16 @@ app.use((req, res, next) => {
   next();
 });
 app.use(requestLogger());
+app.use((req, res, next) => {
+  const originalJson = res.json.bind(res);
+  res.json = (body) => {
+    if (body && typeof body === 'object' && !Array.isArray(body) && body.error && !body.traceId) {
+      return originalJson({ ...body, requestId: req.id, traceId: req.traceId || req.id });
+    }
+    return originalJson(body);
+  };
+  next();
+});
 
 function requestTenant(req) {
   return tenantFor(req.principal, req.get('x-tenant-id'));
@@ -197,12 +209,14 @@ function removeSocketPresence(socket) {
 }
 
 // Public bootstrap endpoints. Swap the demo login for an OIDC/SAML callback adapter in production.
-app.get('/api/health', (_req, res) => {
+app.get('/api/health', async (_req, res) => {
+  const plane = await events.probe();
   res.json({
     status: 'ok',
     service: 'interview-api',
-    eventAdapter: 'memory',
+    eventAdapter: plane.adapter,
     persistence: persistence.mode,
+    otlp: otlpConfig(),
     authentication: { demoLogin: demoLoginEnabled(), oidc: oidcConfig().enabled },
     time: new Date().toISOString(),
   });
@@ -474,7 +488,26 @@ app.post('/api/feature-flags/:id', requirePermission('featureflag:write'), idemp
   } catch (error) { return res.status(404).json({ error: error.message }); }
 });
 
-app.get('/api/operations/slo', requirePermission('operations:read'), (_req, res) => res.json({ data: platform.slo() }));
+app.get('/api/ops/health', requirePermission('operations:read'), async (_req, res) => {
+  const snap = await providerHealth.snapshot();
+  return res.json({ data: { ...snap, process: requestSnapshot() } });
+});
+app.get('/api/integrations', requirePermission('operations:read'), async (_req, res) => {
+  const snap = await providerHealth.snapshot();
+  return res.json({ data: snap.integrations });
+});
+app.get('/api/operations/slo', requirePermission('operations:read'), (_req, res) => {
+  const stats = requestSnapshot();
+  const sample = stats.requests;
+  const availability = sample ? `${(((sample - stats.errors5xx) / sample) * 100).toFixed(2)}% this process` : 'n/a — no samples yet';
+  return res.json({
+    data: [
+      { name: 'API requests this process', objective: 'no silent 5xx', current: availability, status: stats.errors5xx ? 'watch' : 'on_target', owner: 'Platform', note: 'Not a 30-day SLO. Process-local counters only.' },
+      { name: 'Event bus', objective: 'durable when Redpanda is up', current: events.kafkaLite?.last()?.ok ? 'memory+redpanda' : 'memory', status: 'local_only', owner: 'Data Platform' },
+      { name: 'Room join success', objective: '99.9%', current: 'n/a', status: 'blocked', owner: 'Media SRE', note: 'Needs SFU/LiveKit samples.' },
+    ],
+  });
+});
 app.get('/api/operations/incidents', requirePermission('operations:read'), (_req, res) => res.json({ data: platform.incidents() }));
 app.post('/api/operations/incidents', requirePermission('operations:write'), idempotent, (req, res) => {
   const parsed = incidentSchema.safeParse(req.body);
@@ -1136,13 +1169,14 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => removeSocketPresence(socket));
 });
 
-app.use((error, _req, res, _next) => {
+app.use((error, req, res, _next) => {
   console.error(error);
-  res.status(500).json({ error: 'Unexpected control-plane error' });
+  res.status(500).json({ error: 'Unexpected control-plane error', requestId: req.id, traceId: req.traceId || req.id });
 });
 
 async function start() {
   await startTelemetry();
+  events.probe().catch(() => {});
   httpServer.listen(port, '0.0.0.0', () => console.log(`Interview API listening on http://0.0.0.0:${port}`));
 }
 

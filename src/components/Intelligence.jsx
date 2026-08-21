@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Icon } from './Icon.jsx';
 import { platformApi } from '../lib/platformApi.js';
 import { isRemoteApiEnabled } from '../lib/session.js';
+import { ErrorNote } from './ErrorNote.jsx';
 
 export function Intelligence({ onToast }) {
   const apiMode = isRemoteApiEnabled();
@@ -14,7 +15,7 @@ export function Intelligence({ onToast }) {
 
   useEffect(() => {
     let active = true;
-    platformApi.getAiStatus().then((data) => { if (active) setStatus(data); }).catch((reason) => { if (active) setError(reason.message); });
+    platformApi.getAiStatus().then((data) => { if (active) setStatus(data); }).catch((reason) => { if (active) setError(reason); });
     return () => { active = false; };
   }, []);
 
@@ -33,7 +34,7 @@ export function Intelligence({ onToast }) {
       else if (result.abstention) onToast('The copilot abstained — not enough grounded evidence.');
       else onToast(result.fallback ? 'Answer from labelled deterministic fallback (Ollama down).' : 'Answer from the configured model gateway.');
     } catch (reason) {
-      setError(reason.message);
+      setError(reason);
     } finally {
       setBusy(false);
     }
@@ -53,7 +54,7 @@ export function Intelligence({ onToast }) {
         <article className="surface-card prompt-card">
           <div className="surface-header compact"><div><span className="section-kicker">ASSISTIVE ASK</span><h2>Grounded follow-up</h2></div></div>
           {!apiMode && <p className="microcopy">API mode is off. This still returns a labelled local heuristic.</p>}
-          {error && <p className="login-error" role="alert">{error}</p>}
+          <ErrorNote error={error} />
           <label className="form-field"><span>Your question (interviewers only)</span><textarea value={question} onChange={(event) => setQuestion(event.target.value)} rows={3} aria-label="Copilot question" /></label>
           <label className="approval-toggle"><span><b>I consent to AI assistance on this question</b><small>Required. No model call without this.</small></span><button className={`toggle ${consent ? 'is-on' : ''}`} onClick={() => setConsent((value) => !value)} aria-pressed={consent}><i /></button></label>
           <div className="prompt-actions"><button className="button button-primary" disabled={busy} onClick={ask}><Icon name="sparkles" size={16} /> {busy ? 'Asking…' : 'Ask copilot'}</button></div>

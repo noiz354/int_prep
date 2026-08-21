@@ -2,7 +2,7 @@
 
 > **Last updated:** 21 August 2026 (WIB)  
 > **PRD feature-foundation coverage:** **100 / 100 adapters**  
-> **User-usable (wired + staging + production):** **0 / 168** (100 PRD + 48 CR + 20 CV)  
+> **User-usable (wired + staging + production):** **0 / 168** (100 PRD + 48 CR + 20 CV)  \n> **Registry after U6:** mocked **27** · local_only **135** · blocked **6**  
 > **Delivery truth:** Every PRD item has a tested local foundation or provider-ready adapter. Feature Catalog now labels `mocked` / `local_only` / `blocked_on_decision`. Nothing is production deployed.
 
 ## SignalRoom Ready — Candidate Readiness & Coaching (new bounded context)

@@ -20,6 +20,7 @@ Source of capability truth: `src/data/capabilityRegistry.js` (also `docs/CAPABIL
 | Two browsers in the same interview room | Yes — P2P WebRTC on the same machine. Not LiveKit/TURN | U3 done; SFU still later |
 | Ask a grounded copilot question | Yes — consent required; Ollama if up, else labelled fallback | U4 |
 | Ready / Vault with your own durable data | Yes — file store + JWT (Alex). Gmail/payments blocked | U5 |
+| Data Pulse / Trust / Ops / Integrations with honest health | Yes — probes + tenant event log. Never “Connected to Greenhouse” | U6 |
 
 ---
 

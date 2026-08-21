@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Icon } from './Icon.jsx';
 import { completeOidcCallback, fetchAuthMethods, loginWithDemo, startOidcLogin } from '../lib/session.js';
+import { ErrorNote } from './ErrorNote.jsx';
 
 export function LoginGate({ onSignedIn }) {
   const [methods, setMethods] = useState(null);

@@ -9,6 +9,15 @@ const wait = (ms = 180) => new Promise((resolve) => setTimeout(resolve, ms));
 const storageKey = 'signalroom:scorecards';
 const useApi = import.meta.env.VITE_USE_API === 'true';
 
+export class ApiError extends Error {
+  constructor(message, { status, traceId, requestId } = {}) {
+    super(message);
+    this.status = status;
+    this.traceId = traceId;
+    this.requestId = requestId;
+  }
+}
+
 async function apiRequest(path, options = {}) {
   const session = getSession();
   const response = await fetch(path, {
@@ -20,11 +29,13 @@ async function apiRequest(path, options = {}) {
       ...(options.headers || {}),
     },
   });
+  const body = await response.json().catch(() => ({}));
+  const traceId = response.headers.get('x-trace-id') || body.traceId;
+  const requestId = response.headers.get('x-request-id') || body.requestId;
   if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.error || `API request failed (${response.status})`);
+    throw new ApiError(body.error || `API request failed (${response.status})`, { status: response.status, traceId, requestId });
   }
-  return response.json();
+  return body;
 }
 
 /** Re-export for browser-safe API calls from other adapters (media, product). */

@@ -38,8 +38,21 @@ export async function startTelemetry({ serviceName = 'signalroom-service' } = {}
   if (sdk || process.env.OTEL_ENABLED === 'false' || process.env.NODE_ENV === 'test') return;
   tracer = makeTracer(serviceName);
   meter = makeMeter(serviceName);
+  const otlp = process.env.OTLP_ENDPOINT || process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+  let traceExporter;
+  if (otlp) {
+    try {
+      const { OTLPTraceExporter } = await import('@opentelemetry/exporter-trace-otlp-http');
+      const base = String(otlp).replace(/\/$/, '');
+      const url = base.endsWith('/v1/traces') ? base : `${base}/v1/traces`;
+      traceExporter = new OTLPTraceExporter({ url });
+    } catch (error) {
+      console.error('OTLP exporter unavailable:', error.message);
+    }
+  }
   sdk = new NodeSDK({
     serviceName,
+    ...(traceExporter ? { traceExporter } : {}),
     instrumentations: [getNodeAutoInstrumentations()],
   });
   try {
@@ -83,10 +96,19 @@ export function hashTenant(tenantId) {
   return createHash('sha256').update(tenantId).digest('hex').slice(0, 12);
 }
 
+function activeTraceId() {
+  const span = trace.getActiveSpan();
+  const id = span?.spanContext()?.traceId;
+  if (!id || /^0+$/.test(id)) return null;
+  return id;
+}
+
 export function requestLogger(logger = console) {
   return (req, res, next) => {
     req.id = req.headers['x-request-id'] || `${req.actor?.tenantId || 'anon'}-${createHash('sha256').update(String(Math.random())).digest('hex').slice(0, 10)}`;
+    req.traceId = req.headers['x-trace-id'] || activeTraceId() || req.id;
     res.setHeader('x-request-id', req.id);
+    res.setHeader('x-trace-id', req.traceId);
     const startedAt = process.hrtime.bigint();
     res.on('finish', () => {
       const durationMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
@@ -96,6 +118,7 @@ export function requestLogger(logger = console) {
       const entry = {
         event: 'http.request',
         request_id: req.id,
+        trace_id: req.traceId,
         method: req.method,
         route,
         status: res.statusCode,

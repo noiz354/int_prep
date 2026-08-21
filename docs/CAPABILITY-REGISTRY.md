@@ -2,7 +2,7 @@
 
 > **Source of truth (code):** `src/data/capabilityRegistry.js`  
 > **Consumed by:** Feature Catalog, Control Center, Enterprise Scale, Ready Trust screen, Vault Trust screen, `progess.md`, contract tests.  
-> **Phase:** U3 in progress on media/portal. No provider is wired. Nothing is `staging_verified` or `production_deployed`.
+> **Phase:** U6 ops honesty. No provider is `provider_wired`. Nothing is `staging_verified` or `production_deployed`.
 
 ## State model
 
@@ -17,22 +17,22 @@
 
 Almost every row also has `productionGate: blocked_on_decision` until credentials, DPA/self-host ownership, and UAT exist. That gate is **not** the same as the user-visible `state`.
 
-## Counts (after U3)
+## Counts (after U6)
 
 | Product | Total | mocked | local_only | provider_wired | staging_verified | production_deployed | blocked_on_decision |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Interview (PRD) | 100 | 11 | 89 | 0 | 0 | 0 | 0 |
+| Interview (PRD) | 100 | 8 | 92 | 0 | 0 | 0 | 0 |
 | Ready (CR-01…48) | 48 | 18 | 26 | 0 | 0 | 0 | 4 |
 | Vault (CV-01…20) | 20 | 1 | 17 | 0 | 0 | 0 | 2 |
-| **All** | **168** | **30** | **132** | **0** | **0** | **0** | **6** |
+| **All** | **168** | **27** | **135** | **0** | **0** | **0** | **6** |
 
 User-usable (`provider_wired` + `staging_verified` + `production_deployed`): **0**.
 
-## Interview mocked (11)
+## Interview mocked (8)
 
-FE-05, FE-06, DO-01, DO-02, DO-03, DO-09, DO-10, EO-05, EO-06, EO-07, EO-09.
+FE-05, FE-06, DO-01, DO-02, DO-03, DO-09, DO-10, EO-09.
 
-U4 moved AI-07 and FE-09 (copilot) from mocked → local_only. Ollama is not claimed `provider_wired` unless it is actually reachable.
+U6 moved EO-05/06/07 (ATS/HRIS/comms cards) from mocked → local_only: UI says sandbox mock / not connected, never “Connected to Greenhouse”.
 
 ## Ready blocked (4)
 

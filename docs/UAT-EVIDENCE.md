@@ -34,3 +34,14 @@
 | CV-20 | **pass (local_only)** | Audit omits raw bodies in tests |
 
 P0 items that still fail the *production* bar remain **local_only**, not staging_verified.
+
+## Phase U6 addendum
+
+| Check | Result |
+|---|---|
+| Event plane | memory unless Redpanda ApiVersions succeeds |
+| Schema registry | registers JSON contracts when `REDPANDA_SCHEMA_REGISTRY` is up |
+| Integrations UI | Greenhouse/Workday = Sandbox mock or Not connected — never “Connected to Greenhouse” |
+| Ops health | `/api/ops/health` lists last success / last error per provider |
+| Trace id | `x-trace-id` on responses; UI shows it on API failures |
+| OTLP | exporter wired when `OTLP_ENDPOINT` set; collector down here |

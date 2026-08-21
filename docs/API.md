@@ -27,7 +27,7 @@ Every mutation also requires an `Idempotency-Key` header. The demo identity adap
 
 | Endpoint | Description |
 |---|---|
-| `GET /api/health` | Service health, event adapter, and authentication mode. |
+| `GET /api/health` | Service health, event adapter (`memory` or `memory+redpanda`), OTLP flag, authentication mode. |
 | `POST /api/auth/demo-login` | Exchanges a seeded local identity for a signed demo session. |
 | `GET /api/public/invitations?token=` | Invitation preview (masked recipient + interview summary). Rate limited. No JWT. |
 | `POST /api/public/invitations/consent` | Records consent for the invited interview. Rate limited. No JWT. |
@@ -95,7 +95,7 @@ All routes below require the authenticated tenant session, relevant permission, 
 | Artifacts/jobs | `GET/POST /api/interviews/:id/artifacts`, `GET /api/jobs` | Controlled artifact metadata and local job orchestration |
 | AI | `GET /api/ai/status`, `GET /api/rubrics`, `POST /api/ai/follow-up`, `POST /api/ai/follow-up-grounded`, `POST /api/ai/code-evaluation`, `GET/POST /api/ai/models`, `POST /api/interviews/:id/debrief` | Consent-gated copilot (Ollama or labelled fallback), local code evaluation |
 | Data | `GET /api/data/schemas`, `POST /api/data/schema-validate`, `POST /api/data/telemetry`, `GET /api/data/quality`, `GET /api/data/catalog`, `POST /api/data/replay`, `POST /api/data/deletion` | Contracts, telemetry, quality, lineage, audited replay/deletion jobs |
-| Release/SRE | `GET/POST /api/feature-flags`, `GET /api/operations/slo`, `GET/POST /api/operations/incidents` | Progressive delivery, SLO state, controlled incident records |
+| Release/SRE | `GET /api/ops/health`, `GET /api/integrations`, `GET/POST /api/feature-flags`, `GET /api/operations/slo`, `GET/POST /api/operations/incidents` | Honest provider probes, sandbox-mock connectors, process-local SLO counters, incidents |
 | Security | `GET /api/security/policy`, `POST /api/privacy/redact`, `POST /api/security/envelope-encrypt` | Residency, encryption boundary, PII preview, API protection evidence |
 | Integration | `GET/POST /api/webhooks` | Event allowlist and signing-reference webhook registration |
 | Analytics | `GET /api/analytics/overview` | Funnel, calibration, NPS, and feedback timing metrics |
@@ -309,7 +309,18 @@ All endpoints support `X-Tenant-Id`; a mismatched tenant is rejected.
 Both `services/career-vault-api` and `services/candidate-readiness-api` instrument requests
 via `packages/observability`:
 
-- **Correlation ID:** every response carries `x-request-id`; every structured log line
+Error JSON includes `traceId` / `requestId`. Browser failures show **Support trace id**.
+
+## Phase U6 — operator health
+
+| Endpoint | Permission | Purpose |
+|---|---|---|
+| `GET /api/ops/health` | `operations:read` | Provider probes: Redpanda, schema registry, OTLP, WireMock (sandbox_mock), Keycloak, Ollama, Qdrant, MinIO. Last success / last error. |
+| `GET /api/integrations` | `operations:read` | Connector cards. WireMock up → `Sandbox mock`, never “Connected to Greenhouse”. |
+
+`REDPANDA_BROKER` / `REDPANDA_SCHEMA_REGISTRY` / `OTLP_ENDPOINT` / `MOCK_OAUTH_URL` are optional. Unconfigured stays unconfigured.
+
+- **Correlation ID:** every response carries `x-request-id` and `x-trace-id`; every structured log line
   includes `request_id`, `route`, `method`, `status_class`, `duration_ms`, and a hashed
   `tenant` (never raw tenant IDs or PII).
 - **Spans (business operation names):** `career_vault.rag.ask`, `career_vault.rag.plan`,

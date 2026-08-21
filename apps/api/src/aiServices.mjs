@@ -285,5 +285,6 @@ export function createAiServices({ events, platform, tenantId = 'northstar', oll
     registerPromptVersion,
     evaluationSuite,
     recordRun,
+    providerStatus,
   };
 }

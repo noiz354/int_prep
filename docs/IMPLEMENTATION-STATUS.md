@@ -8,7 +8,7 @@ A single schema in `src/data/capabilityRegistry.js` is the source of truth for F
 
 | Product | Total | mocked | local_only | provider_wired | staging_verified | production_deployed | blocked_on_decision |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Interview PRD | 100 | 11 | 89 | 0 | 0 | 0 | 0 |
+| Interview PRD | 100 | 8 | 92 | 0 | 0 | 0 | 0 |
 | Ready CR-01…48 | 48 | 18 | 26 | 0 | 0 | 0 | 4 |
 | Vault CV-01…20 | 20 | 1 | 17 | 0 | 0 | 0 | 2 |
 
@@ -30,6 +30,10 @@ Docker was unavailable, so U1 wired a **file-backed durable store** and an **OID
 ## Phase U2 — recruiter product uses the API
 
 When `VITE_USE_API=true`, Dashboard and Interviews no longer treat `platformData.js` as the source of truth. Creating an interview writes the durable store, optional schedule + invitation, and the list reloads. Control Center lifecycle/artifact actions target the selected live interview. Calendar/email remain labelled adapters.
+
+## Phase U6 — data plane / ops honesty
+
+Data Pulse, Trust, Operations, and Integrations read `/api/ops/health`, events, audit, and integrations. `KafkaProducerAdapter` produces only when Redpanda answers; schema registry registers JSON contracts when up. OTLP HTTP exporter is configured when `OTLP_ENDPOINT` is set. Failures include `x-trace-id`. WireMock is labelled **sandbox mock**. Nothing is `provider_wired`.
 
 ## Phase U5 — Ready + Vault as products
 

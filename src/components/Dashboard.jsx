@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Icon } from './Icon.jsx';
-import { metrics, upcomingInterviews, reliabilityServices } from '../data/platformData.js';
+import { metrics, upcomingInterviews } from '../data/platformData.js';
 import { isRemoteApiEnabled } from '../lib/session.js';
 import { platformApi } from '../lib/platformApi.js';
 import { presentInterview } from '../lib/interviewView.js';
@@ -24,9 +24,11 @@ function MetricCard({ metric }) {
 
 export function Dashboard({ onNavigate, onToast, principal, refreshTick = 0, onCreate }) {
   const [ownInterviews, setOwnInterviews] = useState(null);
+  const [opsHealth, setOpsHealth] = useState(null);
   useEffect(() => {
     if (!isRemoteApiEnabled()) return;
     platformApi.getInterviews().then((list) => setOwnInterviews(Array.isArray(list) ? list.map(presentInterview) : [])).catch(() => setOwnInterviews([]));
+    platformApi.getOpsHealth().then(setOpsHealth).catch(() => setOpsHealth(null));
   }, [refreshTick]);
   const apiMode = isRemoteApiEnabled();
   const greetingName = principal?.name || 'there';
@@ -106,9 +108,17 @@ export function Dashboard({ onNavigate, onToast, principal, refreshTick = 0, onC
           </article>
 
           <article className="surface-card health-card">
-            <div className="surface-header compact"><div><span className="section-kicker">PLATFORM HEALTH</span><h2>All systems watch</h2></div><button className="text-button" onClick={() => onNavigate('operations')}>Details</button></div>
+            <div className="surface-header compact"><div><span className="section-kicker">PLATFORM HEALTH</span><h2>{apiMode ? 'Live probes' : 'Seeded watch'}</h2></div><button className="text-button" onClick={() => onNavigate('operations')}>Details</button></div>
             <div className="health-list">
-              {reliabilityServices.map((service) => <div className="health-row" key={service.name}><span className={`health-status ${service.tone}`} /><span><b>{service.name}</b><small>{service.region}</small></span><strong>{service.latency}</strong></div>)}
+              {(apiMode ? (opsHealth?.providers || []).slice(0, 6) : []).map((service) => (
+                <div className="health-row" key={service.id}>
+                  <span className={`health-status ${service.ok ? 'mint' : 'amber'}`} />
+                  <span><b>{service.label}</b><small>{service.state}</small></span>
+                  <strong>{service.ok ? 'up' : '—'}</strong>
+                </div>
+              ))}
+              {apiMode && !opsHealth && <p className="empty-schedule">Loading provider health…</p>}
+              {!apiMode && <p className="empty-schedule">Turn on the API path to see probed health instead of seeded latency.</p>}
             </div>
           </article>
         </div>

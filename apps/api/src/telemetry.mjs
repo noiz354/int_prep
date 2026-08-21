@@ -16,10 +16,34 @@ const mediaJitter = meter.createHistogram('media.rtc.jitter_ms', { description: 
 const mediaJoinCounter = meter.createCounter('media.session.joins', { description: 'Authorized media session joins' });
 const signalRoomJoinCounter = meter.createCounter('realtime.room.joins', { description: 'Authorized realtime room joins (signal)' });
 
+const requestStats = { requests: 0, errors5xx: 0, startedAt: Date.now() };
+
+export function requestSnapshot() {
+  return { ...requestStats, uptimeMs: Date.now() - requestStats.startedAt };
+}
+
+export function otlpConfig() {
+  const endpoint = process.env.OTLP_ENDPOINT || process.env.OTEL_EXPORTER_OTLP_ENDPOINT || '';
+  return { configured: Boolean(endpoint), endpoint: endpoint || null };
+}
+
 export async function startTelemetry() {
   if (sdk || process.env.OTEL_ENABLED === 'false') return;
+  const otlp = otlpConfig();
+  let traceExporter;
+  if (otlp.configured) {
+    try {
+      const { OTLPTraceExporter } = await import('@opentelemetry/exporter-trace-otlp-http');
+      const base = String(otlp.endpoint).replace(/\/$/, '');
+      const url = base.endsWith('/v1/traces') ? base : `${base}/v1/traces`;
+      traceExporter = new OTLPTraceExporter({ url });
+    } catch (error) {
+      console.error('OTLP exporter unavailable:', error.message);
+    }
+  }
   sdk = new NodeSDK({
     serviceName: process.env.OTEL_SERVICE_NAME || 'signalroom-api',
+    ...(traceExporter ? { traceExporter } : {}),
     instrumentations: [getNodeAutoInstrumentations()],
   });
   sdk.start();

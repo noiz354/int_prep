@@ -36,10 +36,10 @@
 | FE-M-07 | `Interviews.jsx` | Agenda, candidate readiness, panel, status filters are seeded | Persistent interview/scheduling/calendar API and real permissions |
 | FE-M-08 | `LiveStudio.jsx` | **U3:** user-triggered camera + P2P remote tracks + getDisplayMedia. Transcript/copilot still seeded. Code editor still a textarea. | SFU/LiveKit, ASR transcript, Monaco/CRDT |
 | FE-M-09 | `Intelligence.jsx` | **U4:** Ask path hits the consent-gated gateway; seed quotes removed. Transcript elsewhere still seeded. | Live ASR, Qdrant retrieval when the vector store is up |
-| FE-M-10 | `DataPulse.jsx` | Event feed, topics, quality, lineage, retention are static/local control data | Kafka, schema registry, lakehouse/catalog, real quality and lineage APIs |
-| FE-M-11 | `TrustCenter.jsx` | Audit/control cards and policy switches are presentation-heavy | Real policy store, audit query, DLP/KMS/residency controls, immutable audit backend |
-| FE-M-12 | `Operations.jsx` | Service map, SLOs, release list, recovery drill visual state are simulated | OTLP, real SLO/alert service, CI/CD provider, DR execution evidence |
-| FE-M-13 | `Integrations.jsx` | Greenhouse/Google/Slack/Workday connection status is hard-coded | OAuth, secure secrets, field mapping, sync/reconciliation, webhooks/delivery logs |
+| FE-M-10 | `DataPulse.jsx` | **U6:** tenant event log, quality rules, schema list, lakehouse counts, Redpanda/SR probe. Not Kafka lag. | Kafka metrics, governed catalog |
+| FE-M-11 | `TrustCenter.jsx` | **U6:** audit ledger + verify + residency policy record. Still process-local. | Durable WORM audit, KMS, region pin |
+| FE-M-12 | `Operations.jsx` | **U6:** live provider map, process counters, honest “no on-call”. Not 99.98% theatre. | OTLP-backed SLO, alert route, DR evidence |
+| FE-M-13 | `Integrations.jsx` | **U6:** WireMock = “Sandbox mock”, never “Connected to Greenhouse”. | OAuth apps, field mapping, reconciliation |
 | FE-M-14 | `FoundationHub.jsx` | Real local API may respond, but jobs/artifacts/data quality/flags/SLO/integrations remain in-memory contracts | Durable queue/storage/provider wiring and real operations data |
 | FE-M-15 | `CompletionHub.jsx` | Provider-ready completion actions return deterministic local results | Replace one action/domain at a time with real provider implementation and status |
 | FE-M-16 | `FeatureCatalog.jsx` | All 100 PRD IDs display as implemented foundations | Reclassify each feature truthfully: mocked, local, provider-ready, staging, production |
@@ -74,10 +74,10 @@
 
 | Audit ID | File(s) | Current behavior | Required replacement |
 |---|---|---|---|
-| DE-M-01 | `services/event-gateway/src/eventBus.mjs` | `MemoryEventBus` is the active event path; Kafka adapter is interface-only | Kafka cluster/provider, topic ACLs, schema registry, consumer groups, DLQ, replay operations |
-| DE-M-02 | `apps/api/src/platformServices.mjs` | Schema registry is a local `Map`; quality/cdc/lakehouse/catalog output is static | Real schema registry, CDC connector, data catalog, lineage, quality framework |
+| DE-M-01 | `services/event-gateway/src/eventPlane.mjs` | **U6:** memory log always; `KafkaProducerAdapter` + Kafka ApiVersions/Produce when `REDPANDA_BROKER` answers | Cluster ACLs, consumer groups, DLQ ops |
+| DE-M-02 | `eventPlane.mjs` schema registry client | **U6:** registers JSON contracts when SR is up; else local map | Compatibility enforcement, governed catalog |
 | DE-M-03 | `apps/api/src/platformServices.mjs` | Jobs are an in-memory array; replay/deletion/backup are queue-shaped records only | Durable orchestrator/workers, retry policy, DLQ, backfill, legal hold, deletion verification |
-| DE-M-04 | `src/data/foundationData.js`, `DataPulse.jsx` | Topic throughput, lag, quality, retention, lineage visuals are seeded | Live Kafka metrics, stream processor data, lakehouse metadata, governed BI APIs |
+| DE-M-04 | `DataPulse.jsx` | **U6:** live event list + probes; still no Kafka lag histograms | Live Kafka metrics, lakehouse metadata |
 | DE-M-05 | `completionServices.mjs` | CDC, lakehouse, ETL, feature store, backup, semantic metrics return planned/advisory objects | Actual storage, transform, feature-store, backup, warehouse, semantic layer implementation |
 
 ---
