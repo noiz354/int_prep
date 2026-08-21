@@ -31,13 +31,72 @@ const demoLoginSchema = z.object({
   email: z.string().trim().email(),
 });
 
+// Task 4: Redis-backed JWT revocation with in-memory fallback
+const JWT_MAX_LIFETIME_SECONDS = 4 * 60 * 60; // 4 hours matching JWT exp
+const REDIS_REVOCATION_PREFIX = 'signalroom:revoked:';
+let redisClient = null;
+let redisAvailable = false;
+
+async function createRedisClient() {
+  const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+  try {
+    const { default: Redis } = await import('ioredis');
+    const client = new Redis(redisUrl, {
+      maxRetriesPerRequest: 1,
+      connectTimeout: 3000,
+      lazyConnect: true,
+      enableOfflineQueue: false,
+    });
+    client.on('error', () => { redisAvailable = false; });
+    client.on('connect', () => { redisAvailable = true; });
+    return client;
+  } catch {
+    return null;
+  }
+}
+
+const inMemoryRevoked = new Set();
+
 let revocationStore = {
-  isRevoked: () => false,
-  revoke: () => {},
+  isRevoked: async (jti) => {
+    if (!jti) return false;
+    if (redisClient && redisAvailable) {
+      try {
+        const exists = await redisClient.sismember(`${REDIS_REVOCATION_PREFIX}set`, jti);
+        return exists === 1;
+      } catch { /* fallback to in-memory */ }
+    }
+    return inMemoryRevoked.has(jti);
+  },
+  revoke: async (jti) => {
+    if (!jti) return;
+    inMemoryRevoked.add(jti);
+    if (redisClient && redisAvailable) {
+      try {
+        const key = `${REDIS_REVOCATION_PREFIX}set`;
+        await redisClient.sadd(key, jti);
+        await redisClient.expire(key, JWT_MAX_LIFETIME_SECONDS);
+      } catch { /* best-effort Redis, in-memory is already updated */ }
+    }
+  },
 };
 
+// Attempt Redis connection at module load (non-blocking, skip in test mode)
+if (process.env.NODE_ENV !== 'test') {
+  createRedisClient().then((client) => {
+    if (client) {
+      redisClient = client;
+      client.connect().then(() => { redisAvailable = true; }).catch(() => { redisAvailable = false; });
+    }
+  }).catch(() => { /* Redis not available, use in-memory fallback */ });
+}
+
 export function attachRevocationStore(store) {
-  revocationStore = store;
+  // Wrap sync store methods (from durableStore) to be awaitable
+  revocationStore = {
+    isRevoked: async (jti) => store.isRevoked(jti),
+    revoke: async (jti) => store.revoke(jti),
+  };
 }
 
 export function demoLoginEnabled() {
@@ -70,7 +129,7 @@ export async function issueSession(principal) {
 
 export async function verifySession(token) {
   const { payload } = await jwtVerify(token, secret, { issuer, audience });
-  if (revocationStore.isRevoked(payload.jti)) {
+  if (await revocationStore.isRevoked(payload.jti)) {
     const error = new Error('Session revoked');
     error.code = 'revoked';
     throw error;
@@ -101,8 +160,8 @@ export async function issueForPrincipal(principal) {
   return { principal, accessToken, expiresInSeconds: 14_400, method: 'oidc' };
 }
 
-export function revokeSession(jti) {
-  revocationStore.revoke(jti);
+export async function revokeSession(jti) {
+  await revocationStore.revoke(jti);
 }
 
 export async function requireAuthentication(req, res, next) {

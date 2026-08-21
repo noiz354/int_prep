@@ -1,0 +1,66 @@
+# SignalRoom — Integration Test Environment
+#
+# Starts API + Qdrant + Redis for end-to-end testing.
+#
+# Usage:
+#   docker compose -f docker-compose.test.yml up -d --build
+#   docker compose -f docker-compose.test.yml run --rm api npm run test:contracts
+#   docker compose -f docker-compose.test.yml down -v
+
+name: signalroom-test
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    ports:
+      - "18787:8787"
+    environment:
+      NODE_ENV: test
+      PORT: "8787"
+      SIGNALROOM_SEED_DEMO: "true"
+      QDRANT_URL: "http://qdrant:6333"
+      REDIS_URL: "redis://redis:6379"
+      ALLOW_DEMO_LOGIN: "true"
+      LOG_LEVEL: "info"
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8787/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  qdrant:
+    image: qdrant/qdrant:v1.15.2
+    ports:
+      - "16333:6333"
+      - "16334:6334"
+    volumes:
+      - qdrant-test-data:/qdrant/storage
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "16379:6379"
+    volumes:
+      - redis-test-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  qdrant-test-data:
+  redis-test-data:

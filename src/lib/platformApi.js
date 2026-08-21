@@ -159,6 +159,12 @@ export const platformApi = {
     return { ollama: { configured: false, ok: false, reason: 'ui-local' }, qdrant: { configured: false, ok: false, reason: 'ui-local' }, generation: 'deterministic-fallback', retrieval: 'local-keyword' };
   },
 
+  async getOpsHealth() {
+    if (useApi) return (await apiRequest('/api/ops/health')).data;
+    await wait(80);
+    return { providers: [], integrations: [], persistence: 'ui-local', process: {} };
+  },
+
   async suggestGroundedFollowUp(payload) {
     if (useApi) {
       return (await apiRequest('/api/ai/follow-up-grounded', {

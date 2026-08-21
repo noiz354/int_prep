@@ -1,8 +1,9 @@
-"""FastAPI wrapper around the deterministic Career Vault RAG Career Coach.
+"""FastAPI wrapper around the Career Vault RAG Career Coach.
 
 Exposes /v1/rag/ask and /v1/rag/plan with tenant/candidate context, consent
-gate, and preparation-only lockout. Raw transcripts/recordings/email content
-are never logged; only citations and excerpts are returned.
+gate, RBAC-aware retrieval, and preparation-only lockout. Raw
+transcripts/recordings/email content are never logged; only citations and
+excerpts are returned.
 """
 
 import os
@@ -18,13 +19,15 @@ from .main import (
     create_seven_day_plan,
     retrieve,
     cluster_feedback_themes,
+    get_audit_log,
+    clear_audit_log,
     MODEL_VERSION,
 )
 from .otel_logging import get_logger, log_event
 
 logger = get_logger("career-vault-rag")
 
-app = FastAPI(title="SignalRoom Compass Vault RAG", version="0.1.0")
+app = FastAPI(title="SignalRoom Compass Vault RAG", version="0.2.0")
 
 
 class EvidenceIn(BaseModel):
@@ -81,7 +84,15 @@ def health():
 @app.post("/v1/rag/ask")
 def ask(request: AskRequest, x_tenant_id: str | None = Header(default=None), x_actor_id: str | None = Header(default=None), x_actor_role: str | None = Header(default=None)):
     _gate(request, x_tenant_id, x_actor_id, x_actor_role)
-    rag_request = RagRequest(tenant_id=request.tenant_id, candidate_id=request.candidate_id, session_context=request.session_context, question=request.question, evidence=_to_evidence(request.evidence), opportunity_id=request.opportunity_id)
+    rag_request = RagRequest(
+        tenant_id=request.tenant_id,
+        candidate_id=request.candidate_id,
+        session_context=request.session_context,
+        question=request.question,
+        evidence=_to_evidence(request.evidence),
+        opportunity_id=request.opportunity_id,
+        role=x_actor_role or "candidate",
+    )
     result = answer_question(rag_request)
     log_event(logger, "rag.ask", tenant_id=request.tenant_id, outcome="abstention" if result["abstention"] else "answered", reason=result.get("reason"), citation_count=len(result["citations"]))
     return result
@@ -90,7 +101,27 @@ def ask(request: AskRequest, x_tenant_id: str | None = Header(default=None), x_a
 @app.post("/v1/rag/plan")
 def plan(request: PlanRequest, x_tenant_id: str | None = Header(default=None), x_actor_id: str | None = Header(default=None), x_actor_role: str | None = Header(default=None)):
     _gate(request, x_tenant_id, x_actor_id, x_actor_role)
-    rag_request = RagRequest(tenant_id=request.tenant_id, candidate_id=request.candidate_id, session_context=request.session_context, question="create a seven day preparation plan", evidence=_to_evidence(request.evidence))
+    rag_request = RagRequest(
+        tenant_id=request.tenant_id,
+        candidate_id=request.candidate_id,
+        session_context=request.session_context,
+        question="create a seven day preparation plan",
+        evidence=_to_evidence(request.evidence),
+        role=x_actor_role or "candidate",
+    )
     result = create_seven_day_plan(rag_request, target_opportunity_id=request.target_opportunity_id)
     log_event(logger, "rag.plan", tenant_id=request.tenant_id, outcome="abstention" if result["abstention"] else "created", days=len(result.get("plan", {}).get("days", [])) if result.get("plan") else 0)
     return result
+
+
+@app.get("/v1/rag/audit")
+def audit_log():
+    """Return audit log entries for RAG queries."""
+    return {"entries": [vars(e) for e in get_audit_log()]}
+
+
+@app.post("/v1/rag/audit/clear")
+def audit_clear():
+    """Clear the in-memory audit log (dev/testing only)."""
+    clear_audit_log()
+    return {"status": "cleared"}

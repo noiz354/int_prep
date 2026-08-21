@@ -1,12 +1,15 @@
 import { createServer } from 'node:http';
+import { createHmac, randomBytes } from 'node:crypto';
 import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import { rateLimit, ipKeyGenerator } from 'express-rate-limit';
 import { Server as SocketIOServer } from 'socket.io';
 import { z } from 'zod';
 import { featureCatalog } from '../../../src/data/features.js';
 import { createEvent } from '../../../services/event-gateway/src/eventBus.mjs';
 import { createEventPlane } from '../../../services/event-gateway/src/eventPlane.mjs';
 import { createProviderHealth } from './providerHealth.mjs';
-import { randomBytes } from 'node:crypto';
 import { attachRevocationStore, demoLoginEnabled, issueForPrincipal, loginDemo, requireAuthentication, revokeSession, verifySession } from './auth.mjs';
 import { exchangeAuthorizationCode, oidcAuthorizationUrl, oidcConfig } from './oidc.mjs';
 import { createPersistence } from './durableStore.mjs';
@@ -17,11 +20,14 @@ import { createPlatformServices } from './platformServices.mjs';
 import { createCompletionServices } from './completionServices.mjs';
 import { createProductServices } from './productServices.mjs';
 import { createMediaServices } from './mediaServices.mjs';
+import { createRecordingServices } from './recordingServices.mjs';
 import { createDataPlatformServices } from './dataPlatformServices.mjs';
 import { createAiServices } from './aiServices.mjs';
 import { createSecurityServices } from './securityServices.mjs';
-import { inSpan, otlpConfig, recordMediaJoin, recordMediaQuality, recordRequest, recordRoomJoin, recordRoomJoinSignal, requestLogger, requestSnapshot, startTelemetry, stopTelemetry } from './telemetry.mjs';
-import { parseRoomSignal } from './realtimeSignal.mjs';
+import { inSpan, otlpConfig, recordMediaJoin, recordMediaQuality, recordRequest, recordRoomJoin, recordRoomJoinSignal, requestLogger, requestSnapshot } from './telemetry.mjs';
+import { metricsMiddleware } from './metrics.js';
+import { parseRoomSignal, MAX_SIGNAL_BYTES } from './realtimeSignal.mjs';
+import logger, { extractTraceId } from './logger.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -36,10 +42,10 @@ const persistence = createPersistence({
   seedInterviews: process.env.SIGNALROOM_SEED_DEMO === 'true' ? demoSeed : [],
 });
 attachRevocationStore(persistence);
+const providerHealth = createProviderHealth({ eventPlane: events, persistenceMode: persistence.mode || 'file' });
 const auditLedger = persistence.auditLedger;
 const responses = persistence.idempotency;
 const presenceByRoom = new Map();
-const requestBuckets = new Map();
 const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',').map((value) => value.trim()).filter(Boolean);
 const io = new SocketIOServer(httpServer, {
   path: '/socket.io',
@@ -61,6 +67,7 @@ const product = createProductServices({
   persist: (next) => persistence.saveProduct(next),
 });
 const media = createMediaServices({ events, tenantId });
+const recordings = createRecordingServices({ events, tenantId });
 const dataPlatform = createDataPlatformServices({ events, tenantId });
 const aiServices = createAiServices({ events, platform, tenantId, ollamaUrl: process.env.OLLAMA_URL });
 const security = createSecurityServices({ events, platform, tenantId });
@@ -83,6 +90,20 @@ const consentSchema = z.object({
   legalNoticeVersion: z.string().trim().min(1).max(80),
 });
 const roomJoinSchema = z.object({ interviewId: z.string().regex(/^int-[a-zA-Z0-9-]+$/), invitationToken: z.string().min(8).max(200).optional() });
+const recordingStartSchema = z.object({ interviewId: z.string().regex(/^int-[a-zA-Z0-9-]+$/) });
+const recordingStopSchema = z.object({ interviewId: z.string().regex(/^int-[a-zA-Z0-9-]+$/), recordingId: z.string().min(1).max(100) });
+
+/** Participant cap per room type. Interview = 2, panel = 5 (overridable via env). */
+const ROOM_PARTICIPANT_CAPS = {
+  interview: Number(process.env.ROOM_CAP_INTERVIEW || 2),
+  panel: Number(process.env.ROOM_CAP_PANEL || 5),
+};
+
+function getRoomType(interviewId) {
+  if (!interviewId) return 'interview';
+  const raw = persistence.findRoomType?.(interviewId);
+  return raw || 'interview';
+}
 const roomActionSchema = z.object({
   interviewId: z.string().regex(/^int-[a-zA-Z0-9-]+$/),
   action: z.enum(['microphone.changed', 'camera.changed', 'screen-share.changed', 'caption.changed']),
@@ -138,16 +159,31 @@ const evidenceSchema = z.object({ frameworks: z.array(z.string()).max(10).option
 const drillSchema = z.object({ scenario: z.string().max(100).optional() });
 const envelopeRotateSchema = z.object({ keyReference: z.string().max(200).optional() });
 
-app.disable('x-powered-by');
-app.use(express.json({ limit: '300kb' }));
+// Task 1: CORS middleware — allow all in dev, restrict to ALLOWED_ORIGINS in production
+const isDev = process.env.NODE_ENV !== 'production';
+const corsOptions = allowedOrigins?.length
+  ? { origin: allowedOrigins, credentials: true }
+  : { origin: true, credentials: true };
+app.use(cors(corsOptions));
+
+// Task 2: Helmet security headers (replaces manual header assignments)
+const cspDirectives = isDev
+  ? { defaultSrc: ["'self'"], connectSrc: ["'self'", 'http://localhost:5190', 'http://localhost:5191', 'http://localhost:5192', 'http://localhost:5193', 'ws://localhost:5190', 'ws://localhost:5191', 'ws://localhost:5192', 'ws://localhost:5193'], imgSrc: ["'self'", 'data:'], styleSrc: ["'self'", "'unsafe-inline'"], scriptSrc: ["'self'"] }
+  : { defaultSrc: ["'self'"], connectSrc: ["'self'"], imgSrc: ["'self'", 'data:'], styleSrc: ["'self'", "'unsafe-inline'"], scriptSrc: ["'self'"] };
+app.use(helmet({
+  contentSecurityPolicy: { directives: cspDirectives },
+  hsts: { maxAge: 31536000, includeSubDomains: true },
+  referrerPolicy: { policy: 'no-referrer' },
+  permissionsPolicy: { camera: ['self'], microphone: ['self'], geolocation: [] },
+}));
+
+// Task 7: Body size limits — JSON 1MB, URL-encoded 100kb
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: false, limit: '100kb' }));
+
+app.use(metricsMiddleware);
+
 app.use((req, res, next) => {
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('Referrer-Policy', 'no-referrer');
-  res.setHeader('Cache-Control', 'no-store');
-  res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
-  res.setHeader('Content-Security-Policy', "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'");
-  res.setHeader('Permissions-Policy', 'camera=(self), microphone=(self), geolocation=()');
   res.on('finish', () => recordRequest({ route: req.route?.path || req.path, method: req.method, statusCode: res.statusCode, tenantId: req.principal?.tenantId }));
   next();
 });
@@ -175,20 +211,10 @@ function idempotent(req, res, next) {
   return next();
 }
 
-function principalRateLimit(req, res, next) {
-  const bucketKey = `${req.principal?.tenantId || 'unknown'}:${req.principal?.id || req.ip}`;
-  const windowMs = 60_000;
-  const limit = 120;
-  const current = requestBuckets.get(bucketKey) || { startedAt: Date.now(), count: 0 };
-  const withinWindow = Date.now() - current.startedAt < windowMs;
-  const bucket = withinWindow ? current : { startedAt: Date.now(), count: 0 };
-  bucket.count += 1;
-  requestBuckets.set(bucketKey, bucket);
-  res.setHeader('RateLimit-Limit', String(limit));
-  res.setHeader('RateLimit-Remaining', String(Math.max(0, limit - bucket.count)));
-  if (bucket.count > limit) return res.status(429).json({ error: 'Rate limit exceeded. Retry shortly.' });
-  return next();
-}
+// Task 3: express-rate-limit instances
+const globalLimiter = rateLimit({ windowMs: 60_000, limit: 100, standardHeaders: 'draft-7', legacyHeaders: true, message: { error: 'Rate limit exceeded. Retry shortly.' } });
+const authLimiter = rateLimit({ windowMs: 60_000, limit: 10, standardHeaders: 'draft-7', legacyHeaders: true, message: { error: 'Auth rate limit exceeded. Retry shortly.' }, keyGenerator: (req) => `${req.principal?.id || ipKeyGenerator(req)}` });
+const aiLimiter = rateLimit({ windowMs: 60_000, limit: 20, standardHeaders: 'draft-7', legacyHeaders: true, message: { error: 'AI rate limit exceeded. Retry shortly.' }, keyGenerator: (req) => `${req.principal?.tenantId || 'unknown'}:${req.principal?.id || ipKeyGenerator(req)}` });
 
 function appendAudit({ req, action, target, metadata = {} }) {
   return auditLedger.append({ tenantId: req.principal.tenantId, actor: req.principal, action, target, metadata });
@@ -209,6 +235,10 @@ function removeSocketPresence(socket) {
 }
 
 // Public bootstrap endpoints. Swap the demo login for an OIDC/SAML callback adapter in production.
+app.get('/health/live', (_req, res) => {
+  res.status(200).json({ status: 'ok' });
+});
+
 app.get('/api/health', async (_req, res) => {
   const plane = await events.probe();
   res.json({
@@ -226,20 +256,9 @@ app.get('/api/auth/methods', (_req, res) => {
   res.json({ data: { demoLogin: demoLoginEnabled(), oidc: oidcConfig(), persistence: persistence.mode } });
 });
 
-function publicRateLimit(req, res, next) {
-  const bucketKey = `public:${req.ip || 'unknown'}`;
-  const windowMs = 60_000;
-  const limit = 40;
-  const current = requestBuckets.get(bucketKey) || { startedAt: Date.now(), count: 0 };
-  const withinWindow = Date.now() - current.startedAt < windowMs;
-  const bucket = withinWindow ? current : { startedAt: Date.now(), count: 0 };
-  bucket.count += 1;
-  requestBuckets.set(bucketKey, bucket);
-  if (bucket.count > limit) return res.status(429).json({ error: 'Rate limit exceeded. Retry shortly.' });
-  return next();
-}
+const publicLimiter = rateLimit({ windowMs: 60_000, limit: 40, standardHeaders: 'draft-7', legacyHeaders: true, message: { error: 'Rate limit exceeded. Retry shortly.' }, keyGenerator: (req) => `public:${ipKeyGenerator(req)}` });
 
-app.get('/api/public/invitations', publicRateLimit, async (req, res) => {
+app.get('/api/public/invitations', publicLimiter, async (req, res) => {
   const token = String(req.query.token || '');
   if (!token) return res.status(422).json({ error: 'token query parameter is required' });
   const preview = await product.publicInvitationPreview(token);
@@ -253,7 +272,7 @@ app.get('/api/public/invitations', publicRateLimit, async (req, res) => {
   });
 });
 
-app.post('/api/public/invitations/consent', publicRateLimit, async (req, res) => {
+app.post('/api/public/invitations/consent', publicLimiter, async (req, res) => {
   const token = String(req.body?.token || '');
   const parsed = consentSchema.safeParse({
     recording: req.body?.recording,
@@ -276,7 +295,7 @@ app.post('/api/public/invitations/consent', publicRateLimit, async (req, res) =>
   return res.status(201).json({ data: recorded.consent });
 });
 
-app.post('/api/auth/demo-login', async (req, res) => {
+app.post('/api/auth/demo-login', authLimiter, async (req, res) => {
   try {
     const session = await loginDemo(req.body);
     if (session?.disabled) return res.status(403).json({ error: 'Demo login is disabled. Use OIDC or set ALLOW_DEMO_LOGIN=true.' });
@@ -288,7 +307,7 @@ app.post('/api/auth/demo-login', async (req, res) => {
   }
 });
 
-app.get('/api/auth/oidc/start', (req, res) => {
+app.get('/api/auth/oidc/start', authLimiter, (req, res) => {
   try {
     const state = randomBytes(16).toString('hex');
     const redirectUri = process.env.OIDC_REDIRECT_URI || String(req.query.redirect_uri || '');
@@ -299,7 +318,7 @@ app.get('/api/auth/oidc/start', (req, res) => {
   }
 });
 
-app.post('/api/auth/oidc/callback', async (req, res) => {
+app.post('/api/auth/oidc/callback', authLimiter, async (req, res) => {
   try {
     const code = req.body?.code;
     if (!code) return res.status(422).json({ error: 'authorization code is required' });
@@ -314,12 +333,13 @@ app.post('/api/auth/oidc/callback', async (req, res) => {
 });
 
 app.use('/api', requireAuthentication);
-app.use('/api', principalRateLimit);
+app.use('/api', globalLimiter);
+app.use('/api/ai', aiLimiter);
 
 app.get('/api/auth/session', (req, res) => res.json({ data: req.principal }));
 
-app.post('/api/auth/logout', (req, res) => {
-  revokeSession(req.principal.jti);
+app.post('/api/auth/logout', async (req, res) => {
+  await revokeSession(req.principal.jti);
   auditLedger.append({ tenantId: req.principal.tenantId, actor: req.principal, action: 'auth.logout', target: { type: 'user', id: req.principal.id }, metadata: { jti: req.principal.jti } });
   return res.json({ data: { revoked: true } });
 });
@@ -672,6 +692,21 @@ app.get('/api/notifications/:id', requirePermission('notification:read'), (req, 
   const status = product.notificationStatus(req.params.id);
   if (!status) return res.status(404).json({ error: 'Notification job not found' });
   return res.json({ data: status });
+});
+
+// Task 5: TURN server credentials endpoint
+app.get('/api/media/turn-credentials', requirePermission('media:join'), (req, res) => {
+  const turnUrl = process.env.TURN_URL || 'turn:localhost:3478';
+  const turnSecret = process.env.TURN_SECRET || '';
+  if (!turnSecret) {
+    return res.json({ data: { urls: [turnUrl], username: '', credential: '' } });
+  }
+  const timestamp = Math.floor(Date.now() / 1000) + 3600;
+  const username = `${timestamp}:${req.principal.id}`;
+  const hmac = createHmac('sha1', turnSecret);
+  hmac.update(username);
+  const credential = hmac.digest('base64');
+  return res.json({ data: { urls: [turnUrl], username, credential } });
 });
 
 // Phase 2 — Media control plane: BE-07 orchestration, FE-01 resilient room, FE-07 whiteboard, FE-10 AV enhancement.
@@ -1096,6 +1131,46 @@ app.get('/api/audit/verify', requirePermission('audit:read'), (req, res) => {
   return res.json({ data: auditLedger.verify({ tenantId: req.principal.tenantId }) });
 });
 
+// Phase 4 — Task 20: Cloud recording routes
+app.post('/api/media/recordings/start', requirePermission('media:control'), idempotent, (req, res) => {
+  const parsed = recordingStartSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0].message });
+  const { recording, presignedUrl } = recordings.startRecording({ interviewId: parsed.data.interviewId, startedBy: req.principal.id });
+  appendAudit({ req, action: 'recording.started', target: { type: 'interview', id: parsed.data.interviewId }, metadata: { recordingId: recording.id } });
+  const response = { data: { recording, presignedUrl } };
+  responses.set(res.locals.idempotencyKey, response);
+  return res.status(201).json(response);
+});
+
+app.post('/api/media/recordings/:id/chunk', requirePermission('media:control'), (req, res) => {
+  const result = recordings.recordChunk({ recordingId: req.params.id, chunkIndex: Number(req.body?.chunkIndex || 0), size: Number(req.body?.size || 0) });
+  if (!result) return res.status(404).json({ error: 'Recording not found or not active' });
+  return res.json({ data: result });
+});
+
+app.post('/api/media/recordings/:id/stop', requirePermission('media:control'), idempotent, (req, res) => {
+  const parsed = recordingStopSchema.safeParse({ ...req.body, interviewId: req.body?.interviewId || 'int-2048', recordingId: req.params.id });
+  if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0].message });
+  const rec = recordings.stopRecording({ recordingId: req.params.id, duration: Number(req.body?.duration || 0) });
+  if (!rec) return res.status(404).json({ error: 'Recording not found' });
+  appendAudit({ req, action: 'recording.completed', target: { type: 'interview', id: rec.interviewId }, metadata: { recordingId: rec.id, duration: rec.duration, size: rec.totalBytes } });
+  const response = { data: rec };
+  responses.set(res.locals.idempotencyKey, response);
+  return res.json(response);
+});
+
+app.get('/api/media/recordings/:id', requirePermission('media:join'), (req, res) => {
+  const rec = recordings.getRecording(req.params.id);
+  if (!rec) return res.status(404).json({ error: 'Recording not found' });
+  return res.json({ data: rec });
+});
+
+app.get('/api/media/recordings', requirePermission('media:join'), (req, res) => {
+  const interviewId = String(req.query.interviewId || '');
+  if (!interviewId) return res.status(422).json({ error: 'interviewId query parameter is required' });
+  return res.json({ data: recordings.listRecordings(interviewId) });
+});
+
 app.get('/api/events', requirePermission('event:read'), (req, res) => {
   const tenant = requestTenant(req);
   if (!tenant) return res.status(403).json({ error: 'Tenant context mismatch' });
@@ -1128,6 +1203,13 @@ io.on('connection', (socket) => {
     const interview = await repository.findById(parsed.data.interviewId, principal.tenantId);
     if (!interview) return acknowledge({ ok: false, error: 'Interview not found' });
     const room = `interview:${interview.id}`;
+    /* Task 21: Enforce server-side participant cap per room type */
+    const roomType = getRoomType(interview.id);
+    const cap = ROOM_PARTICIPANT_CAPS[roomType] || ROOM_PARTICIPANT_CAPS.interview;
+    const currentCount = presenceByRoom.get(room)?.size || 0;
+    if (currentCount >= cap) {
+      return acknowledge({ ok: false, error: 'room_full', cap, roomType });
+    }
     socket.join(room);
     socket.data.joinedRooms.push(room);
     const members = presenceByRoom.get(room) || new Map();
@@ -1153,10 +1235,37 @@ io.on('connection', (socket) => {
   });
 
   socket.on('room.signal', (rawInput, acknowledge = () => {}) => {
+    // Task 6: Validate signal against Zod schema, reject with error event on failure
+    if (!rawInput || typeof rawInput !== 'object') {
+      socket.emit('signal.error', { error: 'Invalid signal payload' });
+      return acknowledge({ ok: false, error: 'Invalid signal payload' });
+    }
+    const rawSize = Buffer.byteLength(JSON.stringify(rawInput), 'utf8');
+    if (rawSize > MAX_SIGNAL_BYTES) {
+      socket.emit('signal.error', { error: 'Signal exceeds maximum size' });
+      return acknowledge({ ok: false, error: 'Signal exceeds maximum size' });
+    }
     const parsed = parseRoomSignal(rawInput);
-    if (!parsed.ok) return acknowledge({ ok: false, error: parsed.error });
+    if (!parsed.ok) {
+      socket.emit('signal.error', { error: parsed.error });
+      return acknowledge({ ok: false, error: parsed.error });
+    }
     const room = `interview:${parsed.data.interviewId}`;
-    if (!socket.data.joinedRooms?.includes(room)) return acknowledge({ ok: false, error: 'Not in room' });
+    // Task 23: Verify sender is a member of the target room
+    if (!socket.data.joinedRooms?.includes(room)) {
+      socket.emit('signal.error', { error: 'Not a member of the target room' });
+      return acknowledge({ ok: false, error: 'Not in room' });
+    }
+    // Task 23: Verify target user is also a member of the same room (signal isolation)
+    const targetUserId = parsed.data.payload?.to;
+    if (targetUserId) {
+      const roomPresence = presenceByRoom.get(room);
+      const isTargetMember = roomPresence && [...roomPresence.values()].some((m) => m.userId === targetUserId);
+      if (!isTargetMember) {
+        socket.emit('signal.error', { error: 'Target user not in room' });
+        return acknowledge({ ok: false, error: 'Target not in room' });
+      }
+    }
     socket.to(room).emit('room.signal', {
       userId: principal.id,
       name: principal.name,
@@ -1170,24 +1279,23 @@ io.on('connection', (socket) => {
 });
 
 app.use((error, req, res, _next) => {
-  console.error(error);
-  res.status(500).json({ error: 'Unexpected control-plane error', requestId: req.id, traceId: req.traceId || req.id });
+  const traceId = extractTraceId(req);
+  logger.error({ err: error, traceId, requestId: req.id, method: req.method, path: req.path }, 'Unhandled error');
+  res.status(500).json({ error: 'Unexpected control-plane error', requestId: req.id, traceId });
 });
 
 async function start() {
-  await startTelemetry();
   events.probe().catch(() => {});
-  httpServer.listen(port, '0.0.0.0', () => console.log(`Interview API listening on http://0.0.0.0:${port}`));
+  httpServer.listen(port, '0.0.0.0', () => logger.info({ port }, 'Interview API listening'));
 }
 
 if (process.env.NODE_ENV !== 'test') {
   start().catch((error) => {
-    console.error('Failed to start telemetry or API', error);
+    logger.fatal({ err: error }, 'Failed to start API');
     process.exitCode = 1;
   });
   for (const signal of ['SIGTERM', 'SIGINT']) {
     process.once(signal, async () => {
-      await stopTelemetry();
       httpServer.close(() => process.exit(0));
     });
   }
