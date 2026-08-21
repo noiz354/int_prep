@@ -1,0 +1,6 @@
+---
+description: SignalRoom-wide quality, safety, and validation contract
+alwaysApply: true
+---
+
+Read `AGENTS.md` and `progess.md` before significant work. Never weaken consent, tenant isolation, authorization, auditability, or human review. Run `npm test` and `npm run build` before completing changes. Use project-local skills in `.agents/skills/` for multi-step work.

@@ -1,0 +1,62 @@
+# SignalRoom CI — quality gates (lint/test/build/audit) per the ci-cd-and-automation skill.
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Skill pack validation
+        run: npm run skills:check
+
+      - name: Contract + browser tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Security audit (no unmitigated high)
+        run: npm audit --omit=dev --audit-level=high
+
+  # Provider smoke tests against local Docker providers when available.
+  provider-smoke:
+    runs-on: ubuntu-latest
+    needs: quality
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate provider compose files
+        run: docker compose -f docker-compose.providers.yml config --quiet
+
+      - name: Smoke identity realm discovery (Keycloak profile)
+        run: |
+          docker compose -f docker-compose.providers.yml --profile identity up -d keycloak
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8781/realms/signalroom/.well-known/openid-configuration >/dev/null; then
+              echo "Keycloak realm discovery OK"; exit 0
+            fi
+            sleep 2
+          done
+          echo "Keycloak did not become ready"; exit 1
+        env:
+          # Dev-only credentials; never used in production deployments.
+          KEYCLOAK_ADMIN_PASSWORD: ci-dev-only
+
+      - name: Teardown providers
+        if: always()
+        run: docker compose -f docker-compose.providers.yml --profile identity down -v

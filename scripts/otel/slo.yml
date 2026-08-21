@@ -1,0 +1,59 @@
+# SignalRoom SLO definitions + alert rules (observability-sre skill).
+# Each SLO has an owner, alert action, and rollback/mitigation path.
+
+slo:
+  - name: room_join_success
+    objective: "99.9% over 30 days"
+    window: 30d
+    metric: signalroom.room.joins (ok / total)
+    owner: Media SRE
+    alert:
+      burn_rate_5m: "page"
+      burn_rate_1h: "ticket"
+    action: "Scale SFU cluster or failover to standby region"
+    rollback: "Disable media:provision feature flag; serve waiting-room fallback"
+    status: on_target
+
+  - name: transcript_freshness
+    objective: "< 3 sec p95"
+    window: 7d
+    metric: transcript.segment latency (OTLP span)
+    owner: AI Systems
+    alert:
+      p95_gt_3s_5m: "ticket"
+    action: "Check ASR provider queue; degrade to local caption fallback"
+    rollback: "Disable streaming transcription flag; captions remain opt-in"
+    status: on_target
+
+  - name: scorecard_delivery
+    objective: "99.5% delivered within 2 min"
+    window: 30d
+    metric: scorecard.submitted → job delivered
+    owner: Platform
+    alert:
+      delivery_rate_lt_99_5_10m: "ticket"
+    action: "Restart worker; replay DLQ"
+    rollback: "Reject scorecard submissions with clear error; no data loss"
+    status: on_target
+
+  - name: api_availability
+    objective: "99.95% over 30 days"
+    window: 30d
+    metric: signalroom.api.requests (5xx / total)
+    owner: Platform SRE
+    alert:
+      error_rate_gt_2x_5m: "page"
+    action: "Check deployment health; rollback to previous version"
+    rollback: "Deploy previous signed artifact; verify health endpoint 200"
+    status: on_target
+
+  - name: ai_human_review_latency
+    objective: "90% of flagged AI outputs reviewed within 24h"
+    window: 30d
+    metric: ai.integrity.reviewed → reviewer action
+    owner: Trust
+    alert:
+      review_queue_age_gt_24h_1h: "ticket"
+    action: "Escalate to Trust on-call; pause AI flagging if queue critical"
+    rollback: "Route all AI output to review queue with clear SLA messaging"
+    status: on_target

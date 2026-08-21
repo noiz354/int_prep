@@ -1,0 +1,7 @@
+---
+description: React, UX, accessibility, and performance practices for SignalRoom
+globs: src/**/*.{js,jsx,css}
+alwaysApply: false
+---
+
+Use the narrowest relevant skill: `react-experience`, `candidate-portal-accessibility`, or `performance-bundle`. Retain semantic controls, keyboard access, focus handling, motion preferences, dark mode, and relative browser URLs.

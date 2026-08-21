@@ -1,0 +1,7 @@
+---
+description: Secure control-plane practices for Express, Python, and events
+globs: apps/api/**/*.{js,mjs},services/**/*.{js,mjs,py}
+alwaysApply: false
+---
+
+Use the relevant security/realtime/AI/event/SRE skill. Check authentication, tenant scope, permission, validation, idempotency, consent, audit, and observability for each mutating or sensitive path.

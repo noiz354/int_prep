@@ -1,0 +1,385 @@
+# SignalRoom — lightweight local provider adapters
+#
+# OPT-IN local foundations for the production backlog categories. These are
+# provider-ready adapters for development and contract testing, NOT production
+# deployments. The SignalRoom control plane still enforces consent, tenant
+# isolation, authorization, audit, and human review on top of these services.
+#
+# Start by profile (nothing runs by default):
+#
+#   docker compose -f docker-compose.providers.yml --profile identity up -d
+#   docker compose -f docker-compose.providers.yml --profile data    up -d
+#   docker compose -f docker-compose.providers.yml --profile media   up -d
+#   docker compose -f docker-compose.providers.yml --profile ai      up -d
+#   docker compose -f docker-compose.providers.yml --profile integrations up -d
+#   docker compose -f docker-compose.providers.yml --profile delivery up -d
+#
+# All values are dev-only. Never reuse these credentials in production.
+
+name: signalroom-providers
+
+services:
+  # ------------------------------------------------------------------
+  # Identity: OIDC / SAML / SCIM / MFA
+  # ------------------------------------------------------------------
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.2
+    profiles: ["identity"]
+    command: ["start-dev"]
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: dev-admin-password
+      KC_DB: dev-file
+      KC_HTTP_PORT: 8080
+      # SCIM v2 provisioning is a preview feature in Keycloak.
+      KC_FEATURES: preview
+    ports:
+      - "8781:8080" # admin console + OIDC/SAML/SCIM
+    volumes:
+      - keycloak-data:/opt/keycloak/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/realms/signalroom/.well-known/openid-configuration"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # ------------------------------------------------------------------
+  # Data: encrypted MongoDB, KMS/HSM, Kafka/Schema Registry, lakehouse
+  # ------------------------------------------------------------------
+  vault:
+    image: hashicorp/vault:1.18
+    profiles: ["data"]
+    command: ["server", "-dev", "-dev-root-token-id", "dev-root-token"]
+    cap_add:
+      - IPC_LOCK
+    ports:
+      - "8780:8200" # KMS (transit engine) for key wrapping/rotation
+    environment:
+      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+
+  mongodb:
+    image: mongodb/mongodb-community-server:8.0
+    profiles: ["data"]
+    command:
+      - --bind_ip_all
+      # WiredTiger encryption at rest using a local keyfile (dev stand-in for KMS).
+      - --enableEncryption
+      - --encryptionKeyFile
+      - /data/encryption/keyfile
+      - --encryptionCipherMode
+      - AES256-CBC
+    ports:
+      - "8782:27017" # encrypted MongoDB
+    volumes:
+      - mongodb-data:/data/db
+      - ./scripts/mocks/mongodb-keyfile:/data/encryption/keyfile:ro
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ping:1}).ok"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  redpanda:
+    image: redpandadata/redpanda:v25.1.5
+    profiles: ["data"]
+    command:
+      - redpanda
+      - start
+      - --overprovisioned
+      - --smp
+      - "1"
+      - --memory
+      - 512M
+      - --kafka-addr
+      - PLAINTEXT://0.0.0.0:9092
+      - --advertise-kafka-addr
+      - PLAINTEXT://redpanda:9092
+      - --schema-registry-addr
+      - 0.0.0.0:8081
+      - --rpc-addr
+      - 0.0.0.0:33145
+      - --advertise-rpc-addr
+      - redpanda:33145
+    ports:
+      - "8790:9092" # Kafka-compatible API
+      - "8791:8081" # Schema Registry
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD", "rpk", "cluster", "info"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  # Self-hosted CDC option: Debezium (Mongo oplog → Kafka/Redpanda).
+  debezium:
+    image: debezium/connect:3.0
+    profiles: ["data"]
+    ports:
+      - "8806:8083" # Kafka Connect REST API
+    environment:
+      BOOTSTRAP_SERVERS: redpanda:9092
+      GROUP_ID: signalroom-cdc
+      CONFIG_STORAGE_TOPIC: signalroom_connect_configs
+      OFFSET_STORAGE_TOPIC: signalroom_connect_offsets
+      STATUS_STORAGE_TOPIC: signalroom_connect_statuses
+      KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+    depends_on:
+      - redpanda
+
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    profiles: ["data", "media"]
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: signalroom-dev
+      MINIO_ROOT_PASSWORD: dev-minio-password
+    ports:
+      - "8792:9000" # S3-compatible object store (lakehouse landing / recording storage)
+      - "8793:9001" # console
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  # ------------------------------------------------------------------
+  # Media: SFU/WebRTC, TURN, recording storage, isolated code sandbox
+  # ------------------------------------------------------------------
+  mediasoup:
+    image: node:22-alpine
+    profiles: ["media"]
+    # mediasoup is a library: this container is a placeholder harness that
+    # mounts a worker. See docs/ARCHITECTURE.md for the LiveKit alternative.
+    command: ["node", "-e", "console.log('mediasoup SFU worker harness - mount your worker here'); setTimeout(()=>{},2147483647)"]
+    ports:
+      - "8794:10000/udp" # RTC media (placeholder range)
+      - "8796:3000" # SFU HTTP API
+    volumes:
+      - ./services/media/sfu:/srv/sfu:ro
+
+  coturn:
+    image: coturn/coturn:4.6.3
+    profiles: ["media"]
+    command:
+      - -n
+      - --listening-port=3478
+      - --realm=signalroom.local
+      - --fingerprint
+      - --no-cli
+      - --log-file=stdout
+      # Dev-only: static credential. Replace with TURN REST API secrets in prod.
+      - --user=signalroom:dev-turn-password
+      - --lt-cred-mech
+    ports:
+      - "8797:3478/udp"
+      - "8797:3478/tcp"
+    # Required: bypasses Docker NAT so TURN relays work in local dev.
+    network_mode: host
+
+  code-sandbox:
+    image: docker:dind
+    profiles: ["media"]
+    # Lightweight opt-in isolated execution boundary for safe-code review.
+    # Networking is intentionally isolated; the control plane drives it via API.
+    privileged: true
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    ports:
+      - "8795:2375"
+    command: ["dockerd", "--host=tcp://0.0.0.0:2375", "--iptables=false"]
+
+  # Self-hosted SFU option: LiveKit (production-capable, open source).
+  livekit:
+    image: livekit/livekit-server:1.8
+    profiles: ["media"]
+    command: ["--config", "/etc/livekit.yaml"]
+    ports:
+      - "7880:7880" # signaling (WSS/HTTP)
+      - "7881:7881" # RTC
+      - "7882:7882/udp" # RTC UDP
+      - "7883:7883/udp"
+      - "7884:7884/udp"
+      - "7885:7885/udp"
+      - "7886:7886/udp"
+      - "7887:7887/udp"
+      - "7888:7888/udp"
+    volumes:
+      - ./scripts/media/livekit.yaml:/etc/livekit.yaml:ro
+      - livekit-data:/var/lib/livekit
+
+  # ------------------------------------------------------------------
+  # AI/RAG: vector store (model provider runs natively on the Windows
+  # host — Ollama at http://172.24.16.1:11434, set OLLAMA_HOST=0.0.0.0).
+  # ------------------------------------------------------------------
+  qdrant:
+    image: qdrant/qdrant:v1.15.2
+    profiles: ["ai"]
+    ports:
+      - "8799:6333" # vector store for RAG
+      - "8799:6334" # gRPC
+    volumes:
+      - qdrant-data:/qdrant/storage
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  # Self-hosted ASR option: faster-whisper (OpenAI-compatible transcription API).
+  faster-whisper:
+    image: fedirz/faster-whisper-server:latest
+    profiles: ["ai"]
+    ports:
+      - "8803:8000" # OpenAI-compatible /v1/audio/transcriptions
+    environment:
+      WHISPER__MODEL: small
+      WHISPER__COMPUTE_TYPE: int8
+      WHISPER__DEVICE: cpu
+    volumes:
+      - whisper-data:/root/.cache/whisper
+
+  # ------------------------------------------------------------------
+  # Integrations: mocked ATS/HRIS/calendar/comms OAuth
+  # ------------------------------------------------------------------
+  wiremock:
+    image: wiremock/wiremock:3.12.1
+    profiles: ["integrations"]
+    command: ["--port", "8080", "--verbose"]
+    ports:
+      - "8800:8080" # mocked ATS/HRIS/calendar/comms REST + OAuth token endpoints
+    volumes:
+      - ./scripts/mocks/wiremock:/home/wiremock:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/__admin/mappings"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  # Self-hosted calendar option: Radicale (CalDAV/CardDAV).
+  radicale:
+    image: tomsquest/docker-radicale:3.4
+    profiles: ["integrations"]
+    ports:
+      - "8804:5232" # CalDAV server (calendar sync via CalDAV instead of Google API)
+    volumes:
+      - radicale-data:/data
+    environment:
+      RADICALE_AUTH_TYPE: htpasswd
+      RADICALE_AUTH_HTPASSWD_USER: signalroom
+      RADICALE_AUTH_HTPASSWD_PASSWORD: dev-calendar-password
+      RADICALE_STORAGE_FILESYSTEM_FOLDER: /data
+
+  # Self-hosted transactional email option: Postal (SendGrid/Postmark alternative).
+  postal:
+    image: ghcr.io/postalserver/postal:2.1
+    profiles: ["integrations"]
+    ports:
+      - "8805:5000" # web UI + SMTP API
+    environment:
+      POSTAL_DB_HOST: postal-db
+      POSTAL_DB_NAME: postal
+      POSTAL_DB_USER: postal
+      POSTAL_DB_PASSWORD: dev-postal-password
+      POSTAL_SMTP_HOST: smtp.signalroom.example
+      POSTAL_RAILS_ENV: production
+    depends_on:
+      - postal-db
+    # NOTE: Postal needs a database; run postal-db with the same profile.
+  postal-db:
+    image: postgres:16-alpine
+    profiles: ["integrations"]
+    environment:
+      POSTGRES_DB: postal
+      POSTGRES_USER: postal
+      POSTGRES_PASSWORD: dev-postal-password
+    volumes:
+      - postal-db-data:/var/lib/postgresql/data
+
+  # ------------------------------------------------------------------
+  # Delivery: OTel observability, CI/CD, WAF
+  # ------------------------------------------------------------------
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.126.1
+    profiles: ["delivery"]
+    command: ["--config=/etc/otelcol/config.yaml"]
+    ports:
+      - "8785:4317" # OTLP gRPC
+      - "8785:4318" # OTLP HTTP
+    volumes:
+      - ./scripts/otel/config.yaml:/etc/otelcol/config.yaml:ro
+
+  prometheus:
+    image: prom/prometheus:v3.4.1
+    profiles: ["delivery"]
+    ports:
+      - "8784:9090"
+    volumes:
+      - ./scripts/otel/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.71.0
+    profiles: ["delivery"]
+    ports:
+      - "8786:16686" # UI
+      - "8786:4317" # OTLP gRPC (host overlap with collector for simplicity)
+
+  grafana:
+    image: grafana/grafana:12.1.0
+    profiles: ["delivery"]
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: dev-grafana-password
+    ports:
+      - "8783:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+
+  # Self-hosted CI/CD option: Gitea (Git + Actions-compatible runner).
+  gitea:
+    image: gitea/gitea:1.23
+    profiles: ["delivery"]
+    ports:
+      - "8801:3000" # web + git
+    environment:
+      GITEA__server__ROOT_URL: http://localhost:8801
+      GITEA__service__DISABLE_REGISTRATION: "true"
+    volumes:
+      - gitea-data:/data
+
+  act_runner:
+    image: gitea/act_runner:0.2
+    profiles: ["delivery"]
+    depends_on:
+      - gitea
+    environment:
+      GITEA_INSTANCE_URL: http://gitea:3000
+      GITEA_RUNNER_REGISTRATION_TOKEN: dev-registration-token
+    volumes:
+      - act-runner-data:/data
+
+  # Self-hosted WAF option: Coraza (Go, OWASP CRS v4 compatible).
+  coraza:
+    image: coraza/coraza-waf:latest
+    profiles: ["delivery"]
+    ports:
+      - "8802:8080" # reverse-proxy WAF in front of the API
+    environment:
+      CORAZA_CRS: "true"
+
+volumes:
+  keycloak-data:
+  mongodb-data:
+  redpanda-data:
+  minio-data:
+  qdrant-data:
+  grafana-data:
+  livekit-data:
+  whisper-data:
+  radicale-data:
+  postal-db-data:
+  gitea-data:
+  act-runner-data:
