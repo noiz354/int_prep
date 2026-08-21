@@ -95,7 +95,7 @@ fallback to the simulated room. SFU provider remains `blocked-on-provider-decisi
 |---|---:|
 | PRD capabilities documented | 100 |
 | Local foundation/provider-ready adapters | **100** |
-| User-usable capabilities | **0** |
+| User-usable capabilities | **0** (P2P media is local_only, not provider_wired) |
 | Remaining PRD feature IDs | **0** |
 | Automated tests | **Node contract/service + 2 browser utility** (see latest `npm test`) |
 | Production build | Passing |
@@ -223,7 +223,9 @@ Phases 0–5 in `PROMPT-FINISH-STUBS-PHASED.md` are complete (tested boundaries;
 
 **Phase U2 complete:** Dashboard/Interviews/composer/Control Center use the API when enabled; schedules and invitations persist in the file store.
 
-Next: **Phase U3** (candidate portal + joinable media) after approval.
+**Phase U3 complete:** Candidate portal uses invitation tokens; Live Studio/RTC join the same room over P2P WebRTC; honest non-SFU banner; getUserMedia/getDisplayMedia user-triggered; tracks stop on leave.
+
+Next: **Phase U4** (assistive AI users can talk to) after approval.
 
 ## Production deployment backlog
 

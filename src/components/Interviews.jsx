@@ -10,7 +10,7 @@ const days = [
   { day: 'THU', date: '20', active: true }, { day: 'FRI', date: '21' }, { day: 'SAT', date: '22' }, { day: 'SUN', date: '23' },
 ];
 
-export function Interviews({ onNavigate, onToast, onCreate, refreshTick = 0 }) {
+export function Interviews({ onNavigate, onToast, onCreate, onOpenRoom, refreshTick = 0 }) {
   const apiMode = isRemoteApiEnabled();
   const [filter, setFilter] = useState('All');
   const [selectedId, setSelectedId] = useState('');
@@ -19,6 +19,8 @@ export function Interviews({ onNavigate, onToast, onCreate, refreshTick = 0 }) {
   const [search, setSearch] = useState('');
   const [hits, setHits] = useState([]);
   const [busy, setBusy] = useState('');
+  const [invitePath, setInvitePath] = useState('');
+  const [inviteEmail, setInviteEmail] = useState('alex.morgan@example.test');
 
   const load = async () => {
     setError('');
@@ -61,11 +63,14 @@ export function Interviews({ onNavigate, onToast, onCreate, refreshTick = 0 }) {
     try {
       const invitation = await platformApi.createInvitation({
         interviewId: selected.id,
-        recipient: 'candidate@example.test',
+        recipient: inviteEmail || 'alex.morgan@example.test',
         channel: 'email',
         locale: 'en',
       });
-      onToast(`Invitation queued (${invitation.id}). Email delivery is a labelled local adapter — not Postal/SendGrid.`);
+      const path = `/?invite=${encodeURIComponent(invitation.token)}`;
+      setInvitePath(path);
+      try { await navigator.clipboard?.writeText(`${window.location.origin}${path}`); } catch { /* ignore */ }
+      onToast(`Invitation queued (${invitation.id}). Open ${path} in a second browser as the candidate. Email is a labelled adapter.`);
     } catch (reason) {
       onToast(reason.message);
     } finally {
@@ -150,8 +155,10 @@ export function Interviews({ onNavigate, onToast, onCreate, refreshTick = 0 }) {
                 <div><span className="section-kicker">CANDIDATE READINESS</span><strong>Preparation is a separate product</strong></div>
                 <ul>{candidateTasks.map((task) => <li key={task.title}><span className={`task-check ${task.complete ? 'done' : ''}`}><Icon name={task.complete ? 'check' : 'clock'} size={13} /></span><span><b>{task.title}</b><small>{task.note}</small></span></li>)}</ul>
               </div>
+              <label className="form-field"><span>Invitation email</span><input type="email" value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} aria-label="Invitation email" /></label>
+              {invitePath && <p className="invite-link-box"><code>{invitePath}</code></p>}
               <div className="detail-actions">
-                <button className="button button-primary full" onClick={() => onNavigate('studio')}><Icon name="video" size={18} /> Open room</button>
+                <button className="button button-primary full" onClick={() => onOpenRoom ? onOpenRoom({ interviewId: selected.id, label: selected.candidate }) : onNavigate('studio')}><Icon name="video" size={18} /> Open room</button>
                 <button className="button button-secondary full" disabled={Boolean(busy)} onClick={invite}><Icon name="copy" size={17} /> {busy === 'invite' ? 'Queuing…' : 'Queue invitation'}</button>
                 <button className="button button-secondary full" disabled={Boolean(busy)} onClick={remind}>{busy === 'notify' ? 'Queuing…' : 'Queue reminder'}</button>
               </div>

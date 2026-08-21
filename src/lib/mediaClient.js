@@ -20,6 +20,29 @@ export async function stopDeviceTracks(stream) {
   stream?.getTracks().forEach((track) => track.stop());
 }
 
+export async function requestDisplayMedia() {
+  if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getDisplayMedia) {
+    const error = new Error('Screen sharing is not available in this browser.');
+    error.code = 'display-unsupported';
+    throw error;
+  }
+  return navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+}
+
+export async function applyTrackConstraints(stream, preferences = {}) {
+  const audio = stream?.getAudioTracks?.()[0];
+  if (!audio?.applyConstraints) return { applied: false, fallback: ['no-audio-track'] };
+  try {
+    await audio.applyConstraints({
+      echoCancellation: Boolean(preferences.echoCancellation),
+      noiseSuppression: Boolean(preferences.noiseSuppression),
+    });
+    return { applied: true, fallback: [] };
+  } catch {
+    return { applied: false, fallback: ['constraints-unsupported'] };
+  }
+}
+
 function localSession(interviewId) {
   return {
     id: `media-local-${interviewId}`,

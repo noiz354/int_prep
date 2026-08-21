@@ -29,6 +29,8 @@ Every mutation also requires an `Idempotency-Key` header. The demo identity adap
 |---|---|
 | `GET /api/health` | Service health, event adapter, and authentication mode. |
 | `POST /api/auth/demo-login` | Exchanges a seeded local identity for a signed demo session. |
+| `GET /api/public/invitations?token=` | Invitation preview (masked recipient + interview summary). Rate limited. No JWT. |
+| `POST /api/public/invitations/consent` | Records consent for the invited interview. Rate limited. No JWT. |
 
 ## Protected endpoints
 

@@ -2,7 +2,7 @@
 
 > **Source of truth (code):** `src/data/capabilityRegistry.js`  
 > **Consumed by:** Feature Catalog, Control Center, Enterprise Scale, Ready Trust screen, Vault Trust screen, `progess.md`, contract tests.  
-> **Phase:** U0. No provider is wired. Nothing is `staging_verified` or `production_deployed`.
+> **Phase:** U3 in progress on media/portal. No provider is wired. Nothing is `staging_verified` or `production_deployed`.
 
 ## State model
 
@@ -17,20 +17,22 @@
 
 Almost every row also has `productionGate: blocked_on_decision` until credentials, DPA/self-host ownership, and UAT exist. That gate is **not** the same as the user-visible `state`.
 
-## Counts (U0)
+## Counts (after U3)
 
 | Product | Total | mocked | local_only | provider_wired | staging_verified | production_deployed | blocked_on_decision |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Interview (PRD) | 100 | 15 | 85 | 0 | 0 | 0 | 0 |
+| Interview (PRD) | 100 | 13 | 87 | 0 | 0 | 0 | 0 |
 | Ready (CR-01…48) | 48 | 26 | 18 | 0 | 0 | 0 | 4 |
 | Vault (CV-01…20) | 20 | 1 | 17 | 0 | 0 | 0 | 2 |
-| **All** | **168** | **42** | **120** | **0** | **0** | **0** | **6** |
+| **All** | **168** | **40** | **122** | **0** | **0** | **0** | **6** |
 
 User-usable (`provider_wired` + `staging_verified` + `production_deployed`): **0**.
 
-## Interview mocked (15)
+## Interview mocked (13)
 
-AI-07, FE-05, FE-06, FE-07, FE-09, FE-10, DO-01, DO-02, DO-03, DO-09, DO-10, EO-05, EO-06, EO-07, EO-09.
+AI-07, FE-05, FE-06, FE-09, DO-01, DO-02, DO-03, DO-09, DO-10, EO-05, EO-06, EO-07, EO-09.
+
+U3 moved FE-07 (screen share/whiteboard) and FE-10 (AV constraints) from mocked → local_only. Still not an SFU.
 
 ## Ready blocked (4)
 

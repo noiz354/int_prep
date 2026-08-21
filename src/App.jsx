@@ -79,6 +79,9 @@ export default function App() {
   const [toast, setToast] = useState('');
   const [session, setSession] = useState(() => getSession());
   const [interviewTick, setInterviewTick] = useState(0);
+  const [inviteToken, setInviteToken] = useState('');
+  const [activeInterviewId, setActiveInterviewId] = useState('');
+  const [interviewLabel, setInterviewLabel] = useState('');
 
   const notify = (message) => {
     setToast(message);
@@ -90,6 +93,17 @@ export default function App() {
     document.documentElement.dataset.theme = darkMode ? 'dark' : 'light';
     localStorage.setItem('signalroom:theme', darkMode ? 'dark' : 'light');
   }, [darkMode]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const invite = params.get('invite');
+    const interview = params.get('interview');
+    if (invite) {
+      setInviteToken(invite);
+      setActiveScreen('candidate');
+    }
+    if (interview) setActiveInterviewId(interview);
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (event) => {
@@ -104,13 +118,50 @@ export default function App() {
   }, []);
 
   const navigate = (screen) => { setActiveScreen(screen); setMenuOpen(false); window.scrollTo({ top: 0, behavior: 'smooth' }); };
-  const saveScorecard = (scorecard) => platformApi.saveScorecard('int-2048', scorecard);
+  const saveScorecard = (interviewId, scorecard) => platformApi.saveScorecard(interviewId || activeInterviewId || 'int-2048', scorecard);
+  const openRoom = ({ interviewId, invitationToken, label } = {}) => {
+    if (interviewId) setActiveInterviewId(interviewId);
+    if (invitationToken) setInviteToken(invitationToken);
+    if (label) setInterviewLabel(label);
+    navigate('studio');
+  };
+  const persistInterview = async (draft) => {
+    try {
+      const created = await platformApi.createInterview({
+        candidateName: draft.candidateName,
+        role: draft.role,
+        stage: draft.stage,
+        scheduledAt: draft.scheduledAt,
+      });
+      if (draft.scheduledAt) {
+        try { await platformApi.createSchedule({ interviewId: created.id, start: draft.scheduledAt }); } catch { /* optional */ }
+      }
+      let inviteNote = '';
+      if (draft.inviteEmail) {
+        const invitation = await platformApi.createInvitation({
+          interviewId: created.id,
+          recipient: draft.inviteEmail,
+          channel: 'email',
+          locale: 'en',
+        });
+        const path = `/?invite=${encodeURIComponent(invitation.token)}`;
+        inviteNote = ` Candidate link: ${path}`;
+        try { await navigator.clipboard?.writeText(`${window.location.origin}${path}`); } catch { /* ignore */ }
+      }
+      setActiveInterviewId(created.id);
+      setInterviewLabel(created.candidateName);
+      setInterviewTick((value) => value + 1);
+      notify(`Interview ${created.id} saved.${inviteNote}`);
+    } catch (reason) {
+      notify(reason.message);
+    }
+  };
   const screen = useMemo(() => {
     const common = { onNavigate: navigate, onToast: notify };
     switch (activeScreen) {
-      case 'interviews': return <Interviews {...common} onCreate={() => setComposerOpen(true)} refreshTick={interviewTick} />;
-      case 'candidate': return <CandidatePortal onToast={notify} />;
-      case 'studio': return <LiveStudio onToast={notify} onSaveScorecard={saveScorecard} />;
+      case 'interviews': return <Interviews {...common} onCreate={() => setComposerOpen(true)} refreshTick={interviewTick} onOpenRoom={openRoom} />;
+      case 'candidate': return <CandidatePortal onToast={notify} inviteToken={inviteToken} onEnterRoom={openRoom} />;
+      case 'studio': return <LiveStudio onToast={notify} onSaveScorecard={saveScorecard} interviewId={activeInterviewId} invitationToken={inviteToken} interviewLabel={interviewLabel} />;
       case 'intelligence': return <Intelligence onToast={notify} />;
       case 'data': return <DataPulse onToast={notify} />;
       case 'trust': return <TrustCenter onToast={notify} />;
@@ -121,7 +172,7 @@ export default function App() {
       case 'features': return <FeatureCatalog onToast={notify} />;
       default: return <Dashboard {...common} principal={session?.principal} refreshTick={interviewTick} onCreate={() => setComposerOpen(true)} />;
     }
-  }, [activeScreen, session, interviewTick]);
+  }, [activeScreen, session, interviewTick, inviteToken, activeInterviewId, interviewLabel]);
 
   if (isRemoteApiEnabled() && !session) {
     return <LoginGate onSignedIn={setSession} />;
@@ -132,5 +183,5 @@ export default function App() {
     setSession(null);
   };
 
-  return <div className="app-shell"><Sidebar activeScreen={activeScreen} onNavigate={navigate} isOpen={menuOpen} onClose={() => setMenuOpen(false)} /><div className="app-content"><Topbar activeScreen={activeScreen} darkMode={darkMode} principal={session?.principal} onLogout={signOut} onToggleTheme={() => setDarkMode((value) => !value)} onOpenMenu={() => setMenuOpen(true)} onOpenCommand={() => setCommandOpen(true)} onCreateInterview={() => setComposerOpen(true)} />{screen}</div><CommandPalette open={commandOpen} onClose={() => setCommandOpen(false)} onNavigate={navigate} onCreate={() => setComposerOpen(true)} /><InterviewComposer open={composerOpen} onClose={() => setComposerOpen(false)} onComplete={(stage) => notify(`${stage} draft created. Add panelists to finish scheduling.`)} /><Toast message={toast} onDismiss={() => setToast('')} /></div>;
+  return <div className="app-shell"><Sidebar activeScreen={activeScreen} onNavigate={navigate} isOpen={menuOpen} onClose={() => setMenuOpen(false)} /><div className="app-content"><Topbar activeScreen={activeScreen} darkMode={darkMode} principal={session?.principal} onLogout={signOut} onToggleTheme={() => setDarkMode((value) => !value)} onOpenMenu={() => setMenuOpen(true)} onOpenCommand={() => setCommandOpen(true)} onCreateInterview={() => setComposerOpen(true)} />{screen}</div><CommandPalette open={commandOpen} onClose={() => setCommandOpen(false)} onNavigate={navigate} onCreate={() => setComposerOpen(true)} /><InterviewComposer open={composerOpen} onClose={() => setComposerOpen(false)} onComplete={persistInterview} /><Toast message={toast} onDismiss={() => setToast('')} /></div>;
 }

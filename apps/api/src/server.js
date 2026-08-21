@@ -19,6 +19,7 @@ import { createDataPlatformServices } from './dataPlatformServices.mjs';
 import { createAiServices } from './aiServices.mjs';
 import { createSecurityServices } from './securityServices.mjs';
 import { inSpan, recordMediaJoin, recordMediaQuality, recordRequest, recordRoomJoin, recordRoomJoinSignal, requestLogger, startTelemetry, stopTelemetry } from './telemetry.mjs';
+import { parseRoomSignal } from './realtimeSignal.mjs';
 
 const app = express();
 const httpServer = createServer(app);
@@ -209,6 +210,56 @@ app.get('/api/health', (_req, res) => {
 
 app.get('/api/auth/methods', (_req, res) => {
   res.json({ data: { demoLogin: demoLoginEnabled(), oidc: oidcConfig(), persistence: persistence.mode } });
+});
+
+function publicRateLimit(req, res, next) {
+  const bucketKey = `public:${req.ip || 'unknown'}`;
+  const windowMs = 60_000;
+  const limit = 40;
+  const current = requestBuckets.get(bucketKey) || { startedAt: Date.now(), count: 0 };
+  const withinWindow = Date.now() - current.startedAt < windowMs;
+  const bucket = withinWindow ? current : { startedAt: Date.now(), count: 0 };
+  bucket.count += 1;
+  requestBuckets.set(bucketKey, bucket);
+  if (bucket.count > limit) return res.status(429).json({ error: 'Rate limit exceeded. Retry shortly.' });
+  return next();
+}
+
+app.get('/api/public/invitations', publicRateLimit, async (req, res) => {
+  const token = String(req.query.token || '');
+  if (!token) return res.status(422).json({ error: 'token query parameter is required' });
+  const preview = await product.publicInvitationPreview(token);
+  if (!preview.valid) return res.status(200).json({ data: { valid: false, reason: preview.reason } });
+  return res.json({
+    data: {
+      valid: true,
+      invitation: preview.invitation,
+      interview: preview.interview,
+    },
+  });
+});
+
+app.post('/api/public/invitations/consent', publicRateLimit, async (req, res) => {
+  const token = String(req.body?.token || '');
+  const parsed = consentSchema.safeParse({
+    recording: req.body?.recording,
+    transcription: req.body?.transcription,
+    aiProcessing: req.body?.aiProcessing,
+    integrityProcessing: req.body?.integrityProcessing,
+    legalNoticeVersion: req.body?.legalNoticeVersion,
+  });
+  if (!token) return res.status(422).json({ error: 'token is required' });
+  if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0].message });
+  const recorded = await product.recordConsentForInvitation(token, parsed.data);
+  if (!recorded.valid) return res.status(404).json({ error: 'Invitation is invalid or expired', reason: recorded.reason });
+  auditLedger.append({
+    tenantId: recorded.tenantId,
+    actor: { id: recorded.consent.subjectId, name: 'Invitation holder', roles: ['candidate'] },
+    action: 'consent.recorded',
+    target: { type: 'interview', id: recorded.interviewId },
+    metadata: { consentId: recorded.consent.id, invitationId: recorded.consent.invitationId, recording: recorded.consent.recording, transcription: recorded.consent.transcription },
+  });
+  return res.status(201).json({ data: recorded.consent });
 });
 
 app.post('/api/auth/demo-login', async (req, res) => {
@@ -1033,7 +1084,9 @@ io.on('connection', (socket) => {
 
   socket.on('room.join', async (rawInput, acknowledge = () => {}) => {
     const parsed = roomJoinSchema.safeParse(rawInput);
-    if (!parsed.success || !hasPermission(principal, 'interview:room:join', { interviewId: rawInput?.interviewId })) {
+    const staffJoin = parsed.success && hasPermission(principal, 'interview:room:join', { interviewId: parsed.data.interviewId });
+    const inviteJoin = parsed.success && parsed.data.invitationToken && product.invitationAllows({ token: parsed.data.invitationToken, interviewId: parsed.data.interviewId });
+    if (!parsed.success || (!staffJoin && !inviteJoin)) {
       return acknowledge({ ok: false, error: 'Room access denied' });
     }
     const interview = await repository.findById(parsed.data.interviewId, principal.tenantId);

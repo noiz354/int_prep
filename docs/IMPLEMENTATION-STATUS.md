@@ -8,7 +8,7 @@ A single schema in `src/data/capabilityRegistry.js` is the source of truth for F
 
 | Product | Total | mocked | local_only | provider_wired | staging_verified | production_deployed | blocked_on_decision |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Interview PRD | 100 | 15 | 85 | 0 | 0 | 0 | 0 |
+| Interview PRD | 100 | 13 | 87 | 0 | 0 | 0 | 0 |
 | Ready CR-01…48 | 48 | 26 | 18 | 0 | 0 | 0 | 4 |
 | Vault CV-01…20 | 20 | 1 | 17 | 0 | 0 | 0 | 2 |
 
@@ -30,6 +30,10 @@ Docker was unavailable, so U1 wired a **file-backed durable store** and an **OID
 ## Phase U2 — recruiter product uses the API
 
 When `VITE_USE_API=true`, Dashboard and Interviews no longer treat `platformData.js` as the source of truth. Creating an interview writes the durable store, optional schedule + invitation, and the list reloads. Control Center lifecycle/artifact actions target the selected live interview. Calendar/email remain labelled adapters.
+
+## Phase U3 — candidate portal + joinable media
+
+Candidate Portal reads `/?invite=` and the public invitation API (interview record + consent, no recruiter JWT). Live Studio and the RTC app join the same Socket.IO room and negotiate **browser peer-to-peer WebRTC**. Screen share uses `getDisplayMedia`. Tracks stop on leave. Banner states LiveKit is **not** connected. Copilot/transcript remain seeded (U4).
 
 ## Candidate Readiness & Coaching — separate bounded context
 

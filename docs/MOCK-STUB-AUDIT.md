@@ -34,7 +34,7 @@
 |---|---|---|---|
 | FE-M-06 | `Dashboard.jsx` | Schedule, metrics, AI briefing, platform health are static | Authenticated dashboard APIs, analytics warehouse, live health telemetry |
 | FE-M-07 | `Interviews.jsx` | Agenda, candidate readiness, panel, status filters are seeded | Persistent interview/scheduling/calendar API and real permissions |
-| FE-M-08 | `LiveStudio.jsx` | CSS avatar video tiles, seeded transcript/copilot, textarea instead of collaboration, local media controls | SFU/WebRTC provider, real tracks, transcript stream, CRDT/Monaco, sandbox, actual collaboration |
+| FE-M-08 | `LiveStudio.jsx` | **U3:** user-triggered camera + P2P remote tracks + getDisplayMedia. Transcript/copilot still seeded. Code editor still a textarea. | SFU/LiveKit, ASR transcript, Monaco/CRDT |
 | FE-M-09 | `Intelligence.jsx` | Evidence, confidence, model stats, prompt actions are mostly fixed UI values | Actual AI gateway, retrieval evidence, model registry, review queue, evaluation telemetry |
 | FE-M-10 | `DataPulse.jsx` | Event feed, topics, quality, lineage, retention are static/local control data | Kafka, schema registry, lakehouse/catalog, real quality and lineage APIs |
 | FE-M-11 | `TrustCenter.jsx` | Audit/control cards and policy switches are presentation-heavy | Real policy store, audit query, DLP/KMS/residency controls, immutable audit backend |
@@ -48,7 +48,7 @@
 
 | Audit ID | File(s) | Current behavior | Classification | Required replacement |
 |---|---|---|---|---|
-| CR-M-01 | `src/components/CandidatePortal.jsx` | Candidate and interview details are fixed; consent can use local fallback | Partial browser feature + mock content | Real candidate identity, scheduled interview, consent service, accommodation workflow |
+| CR-M-01 | `src/components/CandidatePortal.jsx` | **U3:** invitation token loads the interview; consent hits `/api/public/invitations`. Device preflight remains user-triggered. | Partial | OIDC candidate identity, accommodation booking |
 | CR-M-02 | `apps/candidate-readiness-web/src/data/demo.js` | Job, competencies, coaches, scores, availability are fixed | Mocked frontend | Authorized JD ingestion, persisted plans, coach directory/matching/booking APIs |
 | CR-M-03 | `apps/candidate-readiness-web/src/App.jsx` | Readiness journey is a polished demo with no real auth, progress, coach booking, or handoff | Mocked frontend scaffold | Routed authenticated app, API state, accessibility tests, real plan/practice/coach workflows |
 | CR-M-04 | `apps/candidate-readiness-web/src/lib/readinessApi.js` | Defaults to demo mode and uses header-based API only when remote | Local adapter | OIDC session, relative deployment routing/proxy, retry/error states, real data ownership controls |
@@ -98,9 +98,9 @@
 
 | Audit ID | Current behavior | Required replacement |
 |---|---|---|
-| RT-M-01 | Socket.IO authenticates a demo JWT and shares presence/action state | Real identity, durable room state, authorized signaling, provider media lifecycle |
-| RT-M-02 | Live Studio renders CSS people, not real remote/local media streams | SFU SDK, device track lifecycle, TURN, ICE restart, adaptive bitrate, audio-only fallback |
-| RT-M-03 | Screen sharing/whiteboard/AV enhancement are configuration results only | `getDisplayMedia`, whiteboard CRDT, browser capability checks, policy consent, recording control |
+| RT-M-01 | **U3:** Socket.IO handshake uses session JWT; `room.signal` relays WebRTC SDP/ICE (not stored). | Durable room state, LiveKit lifecycle |
+| RT-M-02 | **U3:** Live Studio publishes real local/remote tracks over P2P mesh. Honest “not LiveKit” banner. | SFU SDK, TURN, adaptive bitrate |
+| RT-M-03 | **U3:** `getDisplayMedia` + canvas whiteboard synced on Socket.IO. Blur is CSS. | CRDT whiteboard, recording control |
 | RT-M-04 | Code editor is a textarea; evaluator is heuristic | Monaco/CRDT, isolated sandbox, hidden tests, resource/network controls |
 | RT-M-05 | Device preflight is partially real browser behavior, but network readiness is heuristic | Provider preflight, TURN reachability, end-to-end media diagnostics, support workflow |
 

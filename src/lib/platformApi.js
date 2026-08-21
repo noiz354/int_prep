@@ -83,6 +83,24 @@ export const platformApi = {
     return clientEventBus.publish('consent.updated', { interviewId, ...consent, recordedAt: new Date().toISOString() });
   },
 
+  async getPublicInvitation(token) {
+    const response = await fetch(`/api/public/invitations?token=${encodeURIComponent(token)}`);
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error || 'Unable to load invitation');
+    return body.data;
+  },
+
+  async capturePublicConsent(token, consent) {
+    const response = await fetch('/api/public/invitations/consent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, ...consent }),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error || 'Unable to save consent');
+    return body.data;
+  },
+
   async getOrganization() {
     if (useApi) return (await apiRequest('/api/organization/current')).data;
     return { id: 'org-northstar', name: 'Northstar Systems', tenantId: 'northstar' };

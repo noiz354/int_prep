@@ -15,7 +15,10 @@ export function LoginGate({ onSignedIn }) {
       setBusy('oidc');
       completeOidcCallback({ code, state })
         .then((session) => {
-          window.history.replaceState({}, '', window.location.pathname);
+          const keep = new URLSearchParams();
+          if (params.get('invite')) keep.set('invite', params.get('invite'));
+          const suffix = keep.toString() ? `/?${keep.toString()}` : window.location.pathname;
+          window.history.replaceState({}, '', suffix);
           onSignedIn(session);
         })
         .catch((reason) => setError(reason.message))

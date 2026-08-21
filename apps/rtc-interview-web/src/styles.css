@@ -51,6 +51,8 @@ body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
 .rtc-presence { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 18px; font-size: 13px; color: var(--rtc-muted); }
 .rtc-presence b { color: var(--rtc-text); }
 .rtc-presence span { background: var(--rtc-card); border: 1px solid var(--rtc-border); border-radius: 999px; padding: 5px 12px; }
+.rtc-honesty { font-size: 13px; color: var(--rtc-muted); background: rgba(245, 195, 107, 0.12); border: 1px solid rgba(245, 195, 107, 0.35); border-radius: 12px; padding: 10px 14px; margin: 0 0 16px; }
+.rtc-remote { margin-top: 12px; }
 
 @media (max-width: 860px) {
   .rtc-stage { grid-template-columns: 1fr; }

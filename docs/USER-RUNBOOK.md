@@ -1,8 +1,8 @@
 # User runbook — local usable path
 
 > **Audience:** a human who wants to click through SignalRoom, Ready, Vault, or the RTC room.  
-> **Honesty:** this is **not** production. Sign-in is explicit (labelled demo or OIDC). Interviews persist in `data/signalroom-store.json`. Video in Live Studio is mostly CSS tiles.  
-> **Next phase:** U2 replaces remaining seeded recruiter screens.
+> **Honesty:** this is **not** production. Sign-in is explicit (labelled demo or OIDC). Interviews persist in `data/signalroom-store.json`. Live Studio is peer-to-peer WebRTC, **not** LiveKit.  
+> **Next phase:** U4 wires assistive AI (Ollama) with consent.
 
 Source of capability truth: `src/data/capabilityRegistry.js` (also `docs/CAPABILITY-REGISTRY.md`).
 
@@ -17,7 +17,7 @@ Source of capability truth: `src/data/capabilityRegistry.js` (also `docs/CAPABIL
 | Create/schedule/search interviews as the signed-in recruiter | Yes — persists in `data/signalroom-store.json` | U2 |
 | Log in as yourself via Keycloak | Adapter ready; Docker IdP not running here | when Keycloak env is set |
 | Keep interviews after restart | Yes — file store | Mongo when `MONGO_URL` is set |
-| Two people in a real SFU room | No. RTC app = local camera loopback | U3 |
+| Two browsers in the same interview room | Yes — P2P WebRTC on the same machine. Not LiveKit/TURN | U3 done; SFU still later |
 | Ask a real LLM | No. Deterministic adapters | U4 |
 | Ready / Vault with your own durable data | Demo UI + optional in-memory APIs | U5 |
 
@@ -59,6 +59,15 @@ Open the Vite URL printed in the terminal (hosted previews use the platform host
 - **Labelled demo identity** — explicit buttons for Maya (talent ops) or Alex (candidate). Requires `ALLOW_DEMO_LOGIN=true` (default). Not silent.
 - **Persistence** — interviews, audit, idempotency, org, and revoked JTIs write to `data/signalroom-store.json` and survive API restart. Mongo is still the production replacement when `MONGO_URL` is available.
 - **Empty dashboard** — no Maya seed interviews unless `SIGNALROOM_SEED_DEMO=true`.
+
+### Two-browser interview (Phase U3)
+
+1. Browser A: sign in as Maya → Schedule interview → optional invitation email `alex.morgan@example.test` → copy `/?invite=…`.
+2. Browser A: **Open room** → **Enable camera** (user gesture).
+3. Browser B: sign in as Alex → open the invite URL → save consent → device test → **Enter waiting room** → **Enable camera**.
+4. You should see the remote video tile. This is **peer-to-peer**, not LiveKit. Leave stops tracks.
+
+Screen share uses the browser’s display picker. Whiteboard is a local canvas synced over Socket.IO, not a CRDT.
 
 **Create a Keycloak user (for Phase U1, not wired yet):**
 

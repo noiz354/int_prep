@@ -43,6 +43,12 @@ function createInvitationToken() {
   return `inv_${randomUUID().replaceAll('-', '')}${randomUUID().replaceAll('-', '')}`;
 }
 
+export function maskEmail(email) {
+  const [user, domain] = String(email || '').split('@');
+  if (!domain) return 'hidden';
+  return `${user.slice(0, 1)}***@${domain}`;
+}
+
 export function createProductServices({ events, repository, tenantId = 'northstar', initial = {}, persist } = {}) {
   const schedules = [...(initial.schedules || [])];
   const calendarSyncs = [];
@@ -179,6 +185,69 @@ export function createProductServices({ events, repository, tenantId = 'northsta
     return { valid: true, invitation };
   }
 
+  /** Token lookup is not tenant-filtered: the unguessable token is the capability. */
+  function lookupInvitationByToken(token) {
+    const invitation = invitations.find((i) => i.token === token);
+    if (!invitation) return { valid: false, reason: 'unknown-token' };
+    if (hours(invitation.expiresAt) < hours()) return { valid: false, reason: 'expired' };
+    return { valid: true, invitation };
+  }
+
+  function invitationAllows({ token, interviewId }) {
+    const result = lookupInvitationByToken(token);
+    return Boolean(result.valid && result.invitation.interviewId === interviewId);
+  }
+
+  async function publicInvitationPreview(token) {
+    const result = lookupInvitationByToken(token);
+    if (!result.valid) return result;
+    const invitation = result.invitation;
+    const interview = repository?.findById
+      ? await repository.findById(invitation.interviewId, invitation.tenantId)
+      : null;
+    return {
+      valid: true,
+      tenantId: invitation.tenantId,
+      invitation: {
+        id: invitation.id,
+        interviewId: invitation.interviewId,
+        locale: invitation.locale,
+        expiresAt: invitation.expiresAt,
+        recipientHint: maskEmail(invitation.recipient),
+      },
+      interview: interview
+        ? {
+            id: interview.id,
+            candidateName: interview.candidateName,
+            role: interview.role,
+            stage: interview.stage,
+            scheduledAt: interview.scheduledAt,
+            status: interview.status,
+            consentHistory: interview.consentHistory || [],
+          }
+        : null,
+    };
+  }
+
+  async function recordConsentForInvitation(token, consentFields) {
+    const result = lookupInvitationByToken(token);
+    if (!result.valid) return result;
+    if (!repository?.saveConsent) return { valid: false, reason: 'store-unavailable' };
+    const invitation = result.invitation;
+    const interview = await repository.findById(invitation.interviewId, invitation.tenantId);
+    if (!interview) return { valid: false, reason: 'interview-missing' };
+    const consent = {
+      id: `consent-${uuid()}`,
+      ...consentFields,
+      subjectId: `invitee:${invitation.id}`,
+      invitationId: invitation.id,
+      recordedAt: now(),
+    };
+    await repository.saveConsent(interview.id, invitation.tenantId, consent);
+    publish('consent.updated', { interviewId: interview.id, consentId: consent.id, invitationId: invitation.id });
+    return { valid: true, consent, interviewId: interview.id, tenantId: invitation.tenantId };
+  }
+
   /** Unified search (BE-12): permission-filtered over allowed entities and artifacts. */
   function search({ query, scope = ['interviews', 'artifacts', 'catalog'], permission = 'search:read', artifactsByInterview = new Map(), dataCatalog = null }) {
     const terms = String(query || '').toLowerCase().split(/\s+/).filter(Boolean);
@@ -277,6 +346,10 @@ export function createProductServices({ events, repository, tenantId = 'northsta
     createInvitation,
     listInvitations,
     verifyInvitation,
+    lookupInvitationByToken,
+    invitationAllows,
+    publicInvitationPreview,
+    recordConsentForInvitation,
     search,
     createNotificationJob,
     attemptNotification,
