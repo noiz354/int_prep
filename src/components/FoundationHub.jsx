@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Icon } from './Icon.jsx';
 import { platformApi } from '../lib/platformApi.js';
+import { summarizeByState } from '../data/capabilityRegistry.js';
+import { CapabilityTruthBar } from './CapabilityTruthBar.jsx';
 
 const tabs = [
   { id: 'workflow', label: 'Workflow', icon: 'briefcase' },
@@ -57,18 +59,20 @@ export function FoundationHub({ onToast }) {
     } finally { setBusy(''); }
   };
 
-  const totalFeatures = 50;
+  const interviewSummary = summarizeByState('interview');
   if (!snapshot) return <main className="page foundation-page"><EmptyState /></main>;
 
   const toggleFlag = (flag) => run(`flag-${flag.id}`, () => platformApi.setFeatureFlag(flag.id, !flag.enabled), (updated) => setSnapshot((current) => ({ ...current, flags: current.flags.map((item) => item.id === updated.id ? { ...item, ...updated } : item) })));
 
   return <main className="page foundation-page">
     <section className="foundation-hero surface-card">
-      <div><span className="pill pill-violet"><Icon name="layers" size={14} /> DELIVERY CONTROL CENTER</span><h2>Fifty capabilities now have a <em>working foundation.</em></h2><p>Operate the local control plane for workflows, automation, data contracts, release safety, privacy controls, and evidence-driven hiring operations.</p><div className="foundation-hero-meta"><span><Icon name="check" size={15} /> {totalFeatures} / 100 PRD capabilities implemented as local foundations</span><span><Icon name="shield" size={15} /> Tenant-scoped and audit-aware actions</span></div></div>
-      <div className="foundation-orbit" aria-hidden="true"><i className="foundation-ring one"/><i className="foundation-ring two"/><span><Icon name="layers" size={31} /></span><b>50%</b></div>
+      <div><span className="pill pill-amber"><Icon name="layers" size={14} /> DELIVERY CONTROL CENTER</span><h2>Local control plane. <em>Not production.</em></h2><p>Operate in-memory workflows, jobs, contracts, flags, and privacy previews. Persistence, SSO, and providers are still Phase U1+.</p><div className="foundation-hero-meta"><span><Icon name="alert" size={15} /> {interviewSummary.userUsable} / {interviewSummary.total} user-usable · {interviewSummary.counts.local_only} local only</span><span><Icon name="shield" size={15} /> Tenant-scoped and audit-aware actions</span></div></div>
+      <div className="foundation-orbit" aria-hidden="true"><i className="foundation-ring one"/><i className="foundation-ring two"/><span><Icon name="layers" size={31} /></span><b>U0</b></div>
     </section>
 
-    <section className="hub-metrics-grid"><Metric label="Implemented foundations" value="50" note="of 100 PRD capabilities"/><Metric label="Active workflows" value={snapshot.workflows.length} note="approved interview loops" tone="mint"/><Metric label="Registered contracts" value={snapshot.schemas.length} note="versioned event schemas" tone="sky"/><Metric label="Release flags" value={snapshot.flags.length} note="tenant/role scoped" tone="amber"/></section>
+    <CapabilityTruthBar product="interview" />
+
+    <section className="hub-metrics-grid"><Metric label="User-usable" value={String(interviewSummary.userUsable)} note="of 100 PRD capabilities"/><Metric label="Active workflows" value={snapshot.workflows.length} note="approved interview loops" tone="mint"/><Metric label="Registered contracts" value={snapshot.schemas.length} note="versioned event schemas" tone="sky"/><Metric label="Release flags" value={snapshot.flags.length} note="tenant/role scoped" tone="amber"/></section>
 
     <section className="hub-tabs" role="tablist" aria-label="Foundation control areas">{tabs.map((tab) => <button key={tab.id} role="tab" aria-selected={activeTab === tab.id} className={activeTab === tab.id ? 'is-active' : ''} onClick={() => setActiveTab(tab.id)}><Icon name={tab.icon} size={16} /> {tab.label}</button>)}</section>
     {error && <div className="hub-error"><Icon name="alert" size={17} /> {error}<button onClick={load}>Retry</button></div>}

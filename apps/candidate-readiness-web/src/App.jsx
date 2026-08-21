@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { actionInbox, demoCoaches, demoJob, demoMaterials, demoOpportunities, demoProfile, demoStories } from './data/demo.js';
 import { createApplicationReview, createReadinessPlan, requestCoachBooking, submitPractice } from './lib/readinessApi.js';
+import { CapabilityStatus } from './CapabilityStatus.jsx';
 
 const navItems = [
   ['overview', 'Overview', '⌂'],
@@ -198,5 +199,6 @@ function TrustData({ consent, setConsent, deviceReady, notify }) {
     <article className="panel-card consent-card"><SectionTitle eyebrow="CONSENT PREFERENCES" title="Choose what is processed"/>{[['ai','AI practice feedback','Role-grounded mock questions and feedback.'],['recording','Practice recording','Optional recording of your own preparation sessions.'],['transcript','Practice transcript','Captions and searchable preparation transcript.'],['human','Human coach handoff','Share selected preparation context with a verified coach.'],['email','Email opportunity updates','Candidate-selected role alerts and application receipts.'],['instagram','Instagram Business updates','Only opt-in business messaging; never unsolicited job blasts.']].map(([id,label,detail]) => <label key={id}><span><b>{label}</b><small>{detail}</small></span><button className={`toggle ${consent[id] ? 'is-on' : ''}`} onClick={() => toggle(id)} aria-pressed={consent[id]}><i /></button></label>)}</article>
     <article className="panel-card boundary-card"><SectionTitle eyebrow="REAL-ASSESSMENT LOCKOUT" title="Practice stops before the real interview"/><div className="boundary-list"><span>✓ No live prompt relay</span><span>✓ No hidden overlays or proctoring bypass</span><span>✓ No confidential question or scorecard access</span><span>✓ No automatic hiring prediction</span><span>✓ No employer-data import without authorization</span></div><button className="secondary full" onClick={() => notify(deviceReady ? 'Your setup rehearsal is complete. Close the practice lab before entering a real assessment.' : 'Complete the laptop setup rehearsal from Overview before your real assessment.')}>{deviceReady ? 'View assessment-day checklist' : 'Go to setup rehearsal'}</button></article>
     <article className="panel-card data-card"><SectionTitle eyebrow="DATA RIGHTS" title="Export, delete, and control sharing"/><p>Candidate-owned readiness plans, stories, practice feedback, opportunities, and handoffs can be exported or deleted according to policy. Hiring evaluation artifacts are a separate data domain.</p><div className="data-actions"><button className="secondary" onClick={() => notify('A candidate-owned readiness export has been queued for review.')}>Request data export</button><button className="secondary danger" onClick={() => notify('A deletion request would start a confirmed, auditable workflow.')}>Request deletion</button></div></article>
+    <CapabilityStatus product="readiness" />
   </section>;
 }

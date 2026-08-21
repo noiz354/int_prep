@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { addArtifact, askRag, createOpportunity, demoData, importEmail, listProviders, registerConnector, requestExport, reviewImport, setProviderEnabled } from './lib/vaultApi.js';
+import { CapabilityStatus } from './CapabilityStatus.jsx';
 
 const navItems = [
   ['timeline', 'Timeline', '◔'],
@@ -181,5 +182,6 @@ function Trust({ consent, toggleConsent, notify, artifacts, opportunities, timel
     <article className="vault-card providers-card"><SectionTitle eyebrow="PROVIDER CONNECTIONS" title="Disable now · Connect when available" /><div className="vault-provider-list">{providers.map((provider) => <article className="vault-provider" key={provider.id}><div><b>{provider.label}</b><small>{provider.capability}</small><em>{provider.reason}</em></div>{provider.action === 'blocked' ? <Badge tone="grey">Blocked</Badge> : <button className={`vault-provider-btn ${provider.enabled ? 'is-enabled' : ''}`} disabled={loading === `provider-${provider.id}`} onClick={() => toggleProvider(provider)}>{provider.enabled ? 'Disable' : 'Connect'}</button>}</article>)}</div></article>
     <article className="vault-card data-card"><SectionTitle eyebrow="DATA RIGHTS" title="Export, delete, and control" /><p>Your timeline ({timeline.length} events), artifacts ({artifacts.length}), and opportunities ({opportunities.length}) are candidate-owned. Export includes only candidate-authorized data; deletion propagates through artifacts, transcripts, index, and derived plans.</p><div className="vault-data-actions"><button className="vault-secondary" onClick={exportData}>Request data export</button><button className="vault-secondary danger" onClick={() => notify('A deletion request would start a confirmed, auditable workflow.')}>Request deletion</button></div></article>
     <article className="vault-card boundary-card"><SectionTitle eyebrow="BOUNDARY" title="Preparation and career planning only" /><div className="vault-rule-list"><span>✓ Real-assessment lockout for coaching assistance</span><span>✓ No employer scorecards or confidential hiring deliberation</span><span>✓ No scraping of personal inboxes or social accounts</span><span>✓ Audit log for import, retrieval, share, export, delete</span></div></article>
+    <CapabilityStatus product="vault" />
   </section>;
 }

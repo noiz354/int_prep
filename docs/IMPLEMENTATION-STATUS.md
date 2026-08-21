@@ -1,5 +1,19 @@
 # Implementation Status — 100-Feature PRD
 
+## Phase U0 — truthful capability registry
+
+A single schema in `src/data/capabilityRegistry.js` is the source of truth for Feature Catalog, Control Center, Enterprise Scale, Ready, and Vault. States:
+
+`mocked` · `local_only` · `provider_wired` · `staging_verified` · `production_deployed` · `blocked_on_decision`
+
+| Product | Total | mocked | local_only | provider_wired | staging_verified | production_deployed | blocked_on_decision |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Interview PRD | 100 | 15 | 85 | 0 | 0 | 0 | 0 |
+| Ready CR-01…48 | 48 | 26 | 18 | 0 | 0 | 0 | 4 |
+| Vault CV-01…20 | 20 | 1 | 17 | 0 | 0 | 0 | 2 |
+
+**User-usable count: 0.** Human boot path: `npm run start:usable` and `docs/USER-RUNBOOK.md`.
+
 ## Candidate Readiness & Coaching — separate bounded context
 
 The candidate-owned preparation product ("SignalRoom Ready") is scaffolded as its own

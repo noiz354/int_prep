@@ -22,6 +22,14 @@ npm run dev
 
 Open the Vite URL shown in the terminal. The development server is configured to bind to `0.0.0.0` for a hosted workspace preview.
 
+To drive the UI through the local API (still demo JWT and in-memory data):
+
+```bash
+npm run start:usable
+```
+
+Human steps, ports, and collisions: [User runbook](docs/USER-RUNBOOK.md). Honest per-ID labels: [Capability registry](docs/CAPABILITY-REGISTRY.md).
+
 ### Run the authenticated/realtime local path
 
 ```bash

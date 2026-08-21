@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { Icon } from './Icon.jsx';
 import { platformApi } from '../lib/platformApi.js';
 import { implementedFoundationIds } from '../data/implementationStatus.js';
+import { summarizeByState } from '../data/capabilityRegistry.js';
+import { CapabilityTruthBar } from './CapabilityTruthBar.jsx';
 
 function readable(action) {
   return action.replaceAll('-', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());

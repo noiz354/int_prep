@@ -120,16 +120,7 @@
 
 ## 7. Truth-label corrections required
 
-The future agent must not call all items “implemented” merely because `src/data/implementationStatus.js` lists all 100 IDs. It must introduce a truthful state model, for example:
-
-- `mocked`
-- `local_only`
-- `provider_ready`
-- `staging_verified`
-- `production_deployed`
-- `blocked_on_decision`
-
-The Feature Catalog, Control Center, Enterprise Scale page, progress document, and implementation status document must consume the same source of truth.
+**U0 done.** Canonical schema: `src/data/capabilityRegistry.js` (`mocked`, `local_only`, `provider_wired`, `staging_verified`, `production_deployed`, `blocked_on_decision`). Feature Catalog, Control Center, Enterprise Scale, Ready Trust, Vault Trust, `docs/CAPABILITY-REGISTRY.md`, and `progess.md` consume it. No ID is `production_deployed`.
 
 ## 8. Completion order recommendation
 

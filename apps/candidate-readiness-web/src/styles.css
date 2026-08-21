@@ -12,3 +12,15 @@
 @media (max-width: 1140px) { .ready-sidebar { width: 222px; }.ready-main { margin-left: 222px; padding: 0 22px 38px; }.overview-grid, .coach-grid, .opportunities-grid, .trust-grid { grid-template-columns: 1fr; }.opportunities-list, .consent-card { grid-row: auto; }.role-grid, .practice-grid { grid-template-columns: 1fr; }.role-hero, .practice-header, .coach-hero, .trust-hero { grid-column: auto; }.answer-card { grid-row: auto; } }
 @media (max-width: 780px) { .ready-sidebar { width: 100%; height: auto; position: sticky; padding: 10px 12px; flex-direction: row; align-items: center; gap: 12px; }.ready-brand { flex: 0 0 auto; }.candidate-mini, .sidebar-bottom { display: none; }.ready-sidebar nav { display: flex; gap: 2px; overflow: auto; }.ready-sidebar nav button { min-width: fit-content; min-height: 33px; padding: 0 8px; font-size: 9px; }.ready-main { margin-left: 0; padding: 0 13px 32px; }.ready-topbar { min-height: 70px; }.topbar-status > button { display: none; }.assessment-boundary { grid-template-columns: 1fr; gap: 4px; }.assessment-boundary button { justify-self: start; }.hero-card { min-height: 240px; }.hero-card h2 { font-size: 31px; }.hero-card p { max-width: 82%; font-size: 9px; }.hero-card .readiness-ring { position: absolute; right: -28px; bottom: 25px; opacity: .45; }.screen-grid { gap: 12px; }.panel-card, .hero-card { padding: 16px; }.coach-row, .opportunities-list > article { grid-template-columns: 32px minmax(0,1fr); }.coach-match, .coach-row .secondary, .opportunities-list .badge, .opportunities-list .secondary { grid-column: 2; justify-self: start; }.opportunities-list .badge { margin-top: 2px; }.data-actions { flex-direction: column; }.readiness-summary { align-items: start; }.breakdown-list article, .skill-matrix article { grid-template-columns: 1fr; gap: 5px; padding: 8px 0; }.breakdown-list span, .skill-matrix span { max-width: 180px; }.answer-footer { align-items: start; flex-direction: column; }.answer-footer .primary { width: 100%; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }
+.capability-status-card { grid-column: 1 / -1; }
+.capability-status-counts { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 14px; }
+.capability-status-counts span { padding: 6px 8px; border-radius: 8px; background: #f1f4f9; color: #52617a; font-size: 8px; font-weight: 700; }
+.capability-status-counts b { color: #19233c; }
+.capability-status-list { display: grid; gap: 0; max-height: 420px; overflow: auto; }
+.capability-status-list article { display: grid; grid-template-columns: 64px 110px minmax(0,1fr); gap: 8px; align-items: start; padding: 8px 0; border-bottom: 1px solid #edf0f5; }
+.capability-status-list code { font-size: 8px; font-weight: 800; color: #4e60ca; }
+.capability-status-list b { font-size: 8px; }
+.capability-status-list small { color: #758099; font-size: 8px; line-height: 1.4; }
+@media (max-width: 780px) {
+  .capability-status-list article { grid-template-columns: 1fr; }
+}

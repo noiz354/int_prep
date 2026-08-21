@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
+    "start:usable": "node scripts/start-usable.mjs",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
     "api": "node apps/api/src/server.js",
@@ -14,6 +15,7 @@
     "test:ui": "vitest run",
     "skills:check": "node scripts/validate-agent-skills.mjs",
     "skills:list": "find .agents/skills -mindepth 2 -maxdepth 2 -name SKILL.md | sort",
+    "candidate:readiness:web": "npm --prefix apps/candidate-readiness-web run dev",
     "candidate:readiness:web:build": "npm --prefix apps/candidate-readiness-web run build",
     "candidate:readiness:api": "npm --prefix services/candidate-readiness-api run dev",
     "candidate:readiness:domain:test": "npm --prefix packages/candidate-readiness-domain run test",
