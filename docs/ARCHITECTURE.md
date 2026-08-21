@@ -39,6 +39,7 @@
 | Enterprise Operations | Integrations | connector/webhook contracts | Connector management and no-code workflow UX with labeled mocks |
 | Candidate Readiness | `apps/candidate-readiness-web` | `services/candidate-readiness-api`, `services/candidate-coaching-ai`, `packages/candidate-readiness-domain` | Preparation-only readiness plans, practice, verified coach matching, handoff; in-memory policy scaffold |
 | Career Vault & RAG | `apps/career-vault-web` | `services/career-vault-api`, `services/career-vault-rag`, `packages/career-vault-domain` | Candidate-private timeline + artifact vault + deterministic cited RAG coach; connector/vector seams labeled |
+| RTC Interview | `apps/rtc-interview-web`, Live Studio | `apps/api` media control plane + Socket.IO | User-triggered WebRTC (getUserMedia + local loopback negotiation), consent-gated, media quality telemetry; SFU provider seam labeled |
 
 ## Event contract
 

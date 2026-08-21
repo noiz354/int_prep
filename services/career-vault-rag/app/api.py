@@ -20,6 +20,9 @@ from .main import (
     cluster_feedback_themes,
     MODEL_VERSION,
 )
+from .otel_logging import get_logger, log_event
+
+logger = get_logger("career-vault-rag")
 
 app = FastAPI(title="SignalRoom Compass Vault RAG", version="0.1.0")
 
@@ -79,11 +82,15 @@ def health():
 def ask(request: AskRequest, x_tenant_id: str | None = Header(default=None), x_actor_id: str | None = Header(default=None), x_actor_role: str | None = Header(default=None)):
     _gate(request, x_tenant_id, x_actor_id, x_actor_role)
     rag_request = RagRequest(tenant_id=request.tenant_id, candidate_id=request.candidate_id, session_context=request.session_context, question=request.question, evidence=_to_evidence(request.evidence), opportunity_id=request.opportunity_id)
-    return answer_question(rag_request)
+    result = answer_question(rag_request)
+    log_event(logger, "rag.ask", tenant_id=request.tenant_id, outcome="abstention" if result["abstention"] else "answered", reason=result.get("reason"), citation_count=len(result["citations"]))
+    return result
 
 
 @app.post("/v1/rag/plan")
 def plan(request: PlanRequest, x_tenant_id: str | None = Header(default=None), x_actor_id: str | None = Header(default=None), x_actor_role: str | None = Header(default=None)):
     _gate(request, x_tenant_id, x_actor_id, x_actor_role)
     rag_request = RagRequest(tenant_id=request.tenant_id, candidate_id=request.candidate_id, session_context=request.session_context, question="create a seven day preparation plan", evidence=_to_evidence(request.evidence))
-    return create_seven_day_plan(rag_request, target_opportunity_id=request.target_opportunity_id)
+    result = create_seven_day_plan(rag_request, target_opportunity_id=request.target_opportunity_id)
+    log_event(logger, "rag.plan", tenant_id=request.tenant_id, outcome="abstention" if result["abstention"] else "created", days=len(result.get("plan", {}).get("days", [])) if result.get("plan") else 0)
+    return result

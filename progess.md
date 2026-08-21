@@ -46,6 +46,48 @@ Email/calendar OAuth connectors and encrypted object storage remain
 `blocked-on-provider-decision` seams (review-before-import contract is implemented and
 tested). UAT P0 scenarios are not yet executed against real providers.
 
+## Observability & tracing (new)
+
+Both candidate-facing APIs are now instrumented via a shared `packages/observability`
+package: OpenTelemetry SDK (auto-instrumentation + manual business spans), structured JSON
+request logs with correlation IDs (`x-request-id`), RED metrics, and a
+`career_vault.rag.abstentions` counter. Python RAG/coaching services emit structured JSON
+logs (stdlib). Verified end-to-end: real spans (`career_vault.rag.ask`,
+`career_vault.rag.plan`) were received by an OTLP endpoint. Runbook:
+`scripts/otel/README-observability.md`.
+
+| Area | Status |
+|---|---|
+| `packages/observability` (startTelemetry, inSpan, requestLogger, recordRed) | ✅ 4 unit tests; fail-soft when collector down |
+| career-vault-api spans + request-id + RED | ✅ Verified OTLP export of RAG spans |
+| candidate-readiness-api spans + request-id + RED | ✅ Practice submit span + structured logs |
+| Python services structured logs | ✅ No PII; tenant hashed; OTLP noted as follow-up |
+| Jaeger/Prometheus/Grafana stack | ⚠️ Docker images `coraza-waf`/`otel-collector-contrib:0.126.1` not pullable — pinned runbook workaround; see `scripts/otel/README-observability.md` |
+
+## Observability — core interview flows + RTC interview app (new)
+
+The main control plane (`apps/api`) now emits correlation IDs (`x-request-id`) and structured
+JSON logs on every request, plus business spans (`media.session.provisioned`,
+`media.ice_restart`, `scorecard.submit`, `interview.create`, `room.join`) and media quality
+metrics (`media.rtc.latency_ms`, `media.rtc.packet_loss_percent`, `media.rtc.jitter_ms`) fed
+from `/api/data/telemetry`.
+
+A new **RTC Interview app** (`apps/rtc-interview-web`, port 5192) provides a real WebRTC
+interview room: user-triggered `getUserMedia` (consent-gated, tracks stopped on leave),
+RTCPeerConnection local-loopback negotiation with ICE/connection state, live media quality
+panel (RTT/jitter/packet loss → `media.rtc.*` metrics), and authenticated Socket.IO room
+presence. Live Studio also gained a user-triggered real-camera preview with graceful
+fallback to the simulated room. SFU provider remains `blocked-on-provider-decision`.
+
+| Area | Status |
+|---|---|
+| Core API correlation IDs + structured logs | ✅ Verified `x-request-id` + JSON log lines |
+| Media/room/scorecard spans | ✅ `media.session.provisioned`, `media.ice_restart`, `room.join`, `scorecard.submit` |
+| Media quality metrics | ✅ `/api/data/telemetry` → `media.rtc.*` histograms |
+| RTC Interview web app | ✅ Build 75.0 KB gzip; consent → denial fallback verified in headless CDP |
+| Live Studio real-camera preview | ✅ User-triggered, tracks stopped on leave, fallback preserved |
+| SFU/WebRTC production provider | ⚠️ Seam labeled; local loopback only until provider decision |
+
 ## Executive status
 
 | Metric | Current value |

@@ -3,7 +3,7 @@ import { Icon } from './Icon.jsx';
 import { copilotSeed, intelligenceSignals, liveParticipants, scorecardCriteria, transcriptSeed } from '../data/platformData.js';
 import { calculateScorecard, recommendationFor } from '../lib/scorecard.js';
 import { connectInterviewRoom } from '../lib/realtimeClient.js';
-import { applyMediaEnhancement, createWhiteboardSession, provisionMediaSession, updateMediaState } from '../lib/mediaClient.js';
+import { applyMediaEnhancement, createWhiteboardSession, provisionMediaSession, requestDeviceTracks, stopDeviceTracks, updateMediaState } from '../lib/mediaClient.js';
 
 function VideoTile({ participant, compact = false, active = false, cameraOn }) {
   return (
@@ -87,6 +87,8 @@ export function LiveStudio({ onToast, onSaveScorecard }) {
   const [mediaStatus, setMediaStatus] = useState({ state: 'provisioning', label: 'Provisioning media session' });
   const [enhancement, setEnhancement] = useState({ blur: false, noiseSuppression: false, echoCancellation: false });
   const [whiteboard, setWhiteboard] = useState(null);
+  const [rtcStream, setRtcStream] = useState(null);
+  const rtcVideoRef = useRef(null);
   const mediaSessionRef = useRef(null);
   const realtimeRef = useRef(null);
   const [code, setCode] = useState(`function reconcileEdits(local, remote) {\n  const byId = new Map(remote.map(item => [item.id, item]));\n  for (const change of local) {\n    if (!byId.has(change.id) || change.updatedAt > byId.get(change.id).updatedAt) {\n      byId.set(change.id, change);\n    }\n  }\n  return [...byId.values()];\n}`);
@@ -126,6 +128,28 @@ export function LiveStudio({ onToast, onSaveScorecard }) {
     setQueued((items) => [...items, message]);
     onToast(message);
   };
+
+  // User-triggered real device access (AGENTS: never auto-request; stop tracks after).
+  const enableRealCamera = async () => {
+    try {
+      const stream = await requestDeviceTracks();
+      setRtcStream(stream);
+      if (rtcVideoRef.current) rtcVideoRef.current.srcObject = stream;
+      setMediaStatus({ state: 'ready', label: 'Real camera preview' });
+      onToast('Real camera preview enabled. Tracks stop when you leave the room.');
+    } catch {
+      setMediaStatus({ state: 'error', label: 'Media session unavailable' });
+      onToast('Camera or microphone access was denied. You can continue with the simulated room.');
+    }
+  };
+
+  const disableRealCamera = () => {
+    stopDeviceTracks(rtcStream);
+    setRtcStream(null);
+    if (rtcVideoRef.current) rtcVideoRef.current.srcObject = null;
+  };
+
+  useEffect(() => () => { stopDeviceTracks(rtcStream); }, [rtcStream]);
 
   const handleEnhancement = async (feature) => {
     const next = { ...enhancement, [feature]: !enhancement[feature] };
@@ -169,7 +193,7 @@ export function LiveStudio({ onToast, onSaveScorecard }) {
       <section className="studio-layout">
         <div className="studio-main">
           <div className="video-stage">
-            <VideoTile participant={liveParticipants[0]} active cameraOn />
+            {rtcStream ? <div className="video-tile is-rtc-preview"><video ref={rtcVideoRef} autoPlay playsInline muted aria-label="Your real camera preview" /><span className="video-role-label">You · real camera</span><button className="rtc-preview-close" onClick={disableRealCamera} aria-label="Disable real camera preview"><Icon name="videoOff" size={14} /></button></div> : <VideoTile participant={liveParticipants[0]} active cameraOn />}
             <VideoTile participant={liveParticipants[1]} cameraOn={cameraOn} />
             <div className="compact-video-grid"><VideoTile participant={liveParticipants[2]} compact cameraOn /></div>
             <div className="stage-label"><Icon name="sparkles" size={15} /> AI assist is private to interviewers</div>
@@ -178,6 +202,7 @@ export function LiveStudio({ onToast, onSaveScorecard }) {
             <button className={`room-control ${muted ? 'is-off' : ''}`} onClick={() => { const next = !muted; setMuted(next); realtimeRef.current?.sendAction('microphone.changed', next); onToast(muted ? 'Microphone enabled.' : 'Microphone muted.'); }} aria-label={muted ? 'Unmute microphone' : 'Mute microphone'}><Icon name={muted ? 'micOff' : 'mic'} size={20} /><span>{muted ? 'Unmute' : 'Mute'}</span></button>
             <button className={`room-control ${!cameraOn ? 'is-off' : ''}`} onClick={() => { const next = !cameraOn; setCameraOn(next); realtimeRef.current?.sendAction('camera.changed', next); onToast(cameraOn ? 'Camera paused.' : 'Camera enabled.'); }} aria-label={cameraOn ? 'Turn camera off' : 'Turn camera on'}><Icon name={cameraOn ? 'video' : 'videoOff'} size={20} /><span>Camera</span></button>
             <button className={`room-control ${shared ? 'is-active' : ''}`} onClick={() => { const next = !shared; setShared(next); realtimeRef.current?.sendAction('screen-share.changed', next); onToast(shared ? 'Screen sharing stopped.' : 'Screen sharing is visible to the room.'); }}><Icon name="monitor" size={20} /><span>Share</span></button>
+            <button className={`room-control ${rtcStream ? 'is-active' : ''}`} onClick={rtcStream ? disableRealCamera : enableRealCamera} aria-pressed={Boolean(rtcStream)} aria-label="Toggle real camera preview"><Icon name="video" size={20} /><span>{rtcStream ? 'Disable camera' : 'Enable camera'}</span></button>
             <button className="room-control" onClick={() => setActivePanel('transcript')}><Icon name="file" size={20} /><span>Transcript</span></button>
             <button className={`room-control ${whiteboard ? 'is-active' : ''}`} onClick={handleWhiteboard}><Icon name="monitor" size={20} /><span>Whiteboard</span></button>
             <button className={`room-control ${enhancement.blur ? 'is-active' : ''}`} onClick={() => handleEnhancement('blur')} aria-pressed={enhancement.blur} aria-label="Toggle background blur"><Icon name="sparkles" size={20} /><span>Blur</span></button>

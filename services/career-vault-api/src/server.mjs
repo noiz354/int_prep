@@ -3,6 +3,9 @@ import { z } from 'zod';
 import { createCareerVaultService } from '../../../packages/career-vault-domain/src/careerVaultService.mjs';
 import { createRagService } from '../../../packages/career-vault-domain/src/ragService.mjs';
 import { assertCandidatePrivateDefault, assertCareerPlanningContext } from '../../../packages/career-vault-domain/src/policies.mjs';
+import { hashTenant, inSpan, recordRagAbstention, requestLogger, startTelemetry } from '../../../packages/observability/src/telemetry.mjs';
+
+await startTelemetry({ serviceName: process.env.OTEL_SERVICE_NAME || 'career-vault-api' });
 
 const app = express();
 const port = Number(process.env.PORT || 8792);
@@ -13,6 +16,7 @@ const auditEvents = [];
 
 app.disable('x-powered-by');
 app.use(express.json({ limit: '300kb' }));
+app.use(requestLogger());
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
@@ -214,11 +218,15 @@ app.post('/v1/shares', requireContext, candidateOnly, idempotent, (req, res) => 
 
 // ---- Email import (review-before-save) ----
 
-app.post('/v1/email/import', requireContext, candidateOnly, idempotent, (req, res) => {
+app.post('/v1/email/import', requireContext, candidateOnly, idempotent, async (req, res) => {
   const parsed = emailImportSchema.safeParse(req.body);
   if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0].message });
   try {
-    const imported = service.importEmail({ ...parsed.data, tenantId: req.actor.tenantId, candidateId: req.actor.actorId });
+    const imported = await inSpan('career_vault.email_import', { tenant: hashTenant(req.actor.tenantId), outcome: 'awaiting_review' }, async (span) => {
+      const record = await service.importEmail({ ...parsed.data, tenantId: req.actor.tenantId, candidateId: req.actor.actorId });
+      span.setAttribute('import_id', record.id);
+      return record;
+    });
     const response = { data: imported, status: 'awaiting_review', reviewBeforeSave: true, trainingUse: false, forwardedToEmployer: false };
     idempotencyResponses.set(res.locals.idempotencyKey, response); recordAudit(req, 'email_import.received', imported.id, { subject: imported.subject.slice(0, 80) }); return res.status(201).json(response);
   } catch (error) { return res.status(422).json({ error: error.message }); }
@@ -250,27 +258,41 @@ function ragEvidence(req, includeArtifactIds) {
   }));
 }
 
-app.post('/v1/rag/ask', requireContext, candidateOnly, (req, res) => {
+app.post('/v1/rag/ask', requireContext, candidateOnly, async (req, res) => {
   const parsed = ragAskSchema.safeParse(req.body);
   if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0].message });
   try {
     const providers = service.listProviders({ tenantId: req.actor.tenantId, candidateId: req.actor.actorId });
     const ragProvider = providers.find((item) => item.id === 'rag_coach');
     if (ragProvider && !ragProvider.enabled) return res.status(409).json({ error: 'The RAG Career Coach is disabled. Enable it in Trust & data to ask cited questions over your records.' });
-    const result = rag.ask({ tenantId: req.actor.tenantId, candidateId: req.actor.actorId, sessionContext: 'career_planning', question: parsed.data.question, opportunityId: parsed.data.opportunityId, evidence: ragEvidence(req, parsed.data.includeArtifactIds) });
+    const result = await inSpan('career_vault.rag.ask', { tenant: hashTenant(req.actor.tenantId), citation_count: 0 }, async (span) => {
+      const output = await rag.ask({ tenantId: req.actor.tenantId, candidateId: req.actor.actorId, sessionContext: 'career_planning', question: parsed.data.question, opportunityId: parsed.data.opportunityId, evidence: ragEvidence(req, parsed.data.includeArtifactIds) });
+      span.setAttribute('abstention', output.abstention);
+      span.setAttribute('citation_count', output.citations.length);
+      if (output.abstention) {
+        span.setAttribute('abstention_reason', output.reason);
+        recordRagAbstention(output.reason);
+      }
+      return output;
+    });
     recordAudit(req, 'rag.asked', req.actor.actorId, { abstention: result.abstention, citationCount: result.citations.length });
     return res.json({ data: result });
-  } catch (error) { return res.status(409).json({ error: error.message }); }
+  } catch (error) { console.error('[career-vault-api] rag/ask failed:', error); return res.status(409).json({ error: error.message }); }
 });
 
-app.post('/v1/rag/plan', requireContext, candidateOnly, (req, res) => {
+app.post('/v1/rag/plan', requireContext, candidateOnly, async (req, res) => {
   const parsed = ragPlanSchema.safeParse(req.body);
   if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0].message });
   try {
     const providers = service.listProviders({ tenantId: req.actor.tenantId, candidateId: req.actor.actorId });
     const ragProvider = providers.find((item) => item.id === 'rag_coach');
     if (ragProvider && !ragProvider.enabled) return res.status(409).json({ error: 'The RAG Career Coach is disabled. Enable it in Trust & data to generate cited plans.' });
-    const result = rag.createSevenDayPlan({ tenantId: req.actor.tenantId, candidateId: req.actor.actorId, sessionContext: 'career_planning', targetOpportunityId: parsed.data.targetOpportunityId, evidence: ragEvidence(req, parsed.data.includeArtifactIds) });
+    const result = await inSpan('career_vault.rag.plan', { tenant: hashTenant(req.actor.tenantId) }, async (span) => {
+      const output = await rag.createSevenDayPlan({ tenantId: req.actor.tenantId, candidateId: req.actor.actorId, sessionContext: 'career_planning', targetOpportunityId: parsed.data.targetOpportunityId, evidence: ragEvidence(req, parsed.data.includeArtifactIds) });
+      span.setAttribute('abstention', output.abstention);
+      span.setAttribute('plan_days', output.plan?.days?.length || 0);
+      return output;
+    });
     recordAudit(req, 'rag.plan_created', req.actor.actorId, { abstention: result.abstention, days: result.plan?.days?.length || 0 });
     return res.json({ data: result });
   } catch (error) { return res.status(409).json({ error: error.message }); }

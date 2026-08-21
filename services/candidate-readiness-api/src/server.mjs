@@ -2,6 +2,9 @@ import express from 'express';
 import { z } from 'zod';
 import { createReadinessService } from '../../../packages/candidate-readiness-domain/src/readinessService.mjs';
 import { assertPreparationOnly } from '../../../packages/candidate-readiness-domain/src/policies.mjs';
+import { hashTenant, inSpan, requestLogger, startTelemetry } from '../../../packages/observability/src/telemetry.mjs';
+
+await startTelemetry({ serviceName: process.env.OTEL_SERVICE_NAME || 'candidate-readiness-api' });
 
 const app = express();
 const port = Number(process.env.PORT || 8790);
@@ -11,6 +14,7 @@ const auditEvents = [];
 
 app.disable('x-powered-by');
 app.use(express.json({ limit: '250kb' }));
+app.use(requestLogger());
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
@@ -116,12 +120,17 @@ app.post('/v1/stories', requireContext, candidateOnly, idempotent, (req, res) =>
   } catch (error) { return res.status(422).json({ error: error.message }); }
 });
 
-app.post('/v1/practice-sessions', requireContext, candidateOnly, idempotent, (req, res) => {
+app.post('/v1/practice-sessions', requireContext, candidateOnly, idempotent, async (req, res) => {
   const parsed = practiceSessionSchema.safeParse(req.body);
   if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0].message });
   try {
     assertPreparationOnly(parsed.data);
-    const session = service.createPracticeSession({ ...parsed.data, tenantId: req.actor.tenantId, candidateId: req.actor.actorId });
+    const session = await inSpan('candidate_readiness.practice.submit', { tenant: hashTenant(req.actor.tenantId), practice_mode: parsed.data.practiceMode }, async (span) => {
+      const created = service.createPracticeSession({ ...parsed.data, tenantId: req.actor.tenantId, candidateId: req.actor.actorId });
+      span.setAttribute('session_id', created.id);
+      span.setAttribute('readiness_signal', created.feedback?.readinessSignal || 0);
+      return created;
+    });
     const response = { data: session, liveAssessmentAccess: false }; idempotencyResponses.set(res.locals.idempotencyKey, response); recordAudit(req, 'practice.completed', session.id, { practiceMode: session.practiceMode }); return res.status(201).json(response);
   } catch (error) { return res.status(422).json({ error: error.message }); }
 });

@@ -17,7 +17,7 @@ import { createDataPlatformServices } from './dataPlatformServices.mjs';
 import { createAiServices } from './aiServices.mjs';
 import { createSecurityServices } from './securityServices.mjs';
 import { MemoryInterviewRepository } from './repositories.mjs';
-import { inSpan, recordRequest, recordRoomJoin, startTelemetry, stopTelemetry } from './telemetry.mjs';
+import { inSpan, recordMediaJoin, recordMediaQuality, recordRequest, recordRoomJoin, recordRoomJoinSignal, requestLogger, startTelemetry, stopTelemetry } from './telemetry.mjs';
 
 const app = express();
 const httpServer = createServer(app);
@@ -134,6 +134,7 @@ app.use((req, res, next) => {
   res.on('finish', () => recordRequest({ route: req.route?.path || req.path, method: req.method, statusCode: res.statusCode, tenantId: req.principal?.tenantId }));
   next();
 });
+app.use(requestLogger());
 
 function requestTenant(req) {
   return tenantFor(req.principal, req.get('x-tenant-id'));
@@ -324,6 +325,7 @@ app.post('/api/data/telemetry', requirePermission('data:operate'), idempotent, (
   const parsed = telemetrySchema.safeParse(req.body);
   if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0].message });
   const item = platform.recordTelemetry({ tenantId: req.principal.tenantId, ...parsed.data });
+  recordMediaQuality({ latencyMs: parsed.data.latencyMs, packetLoss: parsed.data.packetLoss, jitterMs: parsed.data.jitterMs, interviewId: parsed.data.interviewId });
   events.publish(createEvent('data.telemetry.recorded', { tenantId: req.principal.tenantId, interviewId: item.interviewId, latencyMs: item.latencyMs, packetLoss: item.packetLoss }, { idempotencyKey: res.locals.idempotencyKey }));
   const response = { data: item }; responses.set(res.locals.idempotencyKey, response); return res.status(201).json(response);
 });
@@ -526,13 +528,19 @@ app.get('/api/notifications/:id', requirePermission('notification:read'), (req, 
 });
 
 // Phase 2 — Media control plane: BE-07 orchestration, FE-01 resilient room, FE-07 whiteboard, FE-10 AV enhancement.
-app.post('/api/media/sessions', requirePermission('media:provision'), idempotent, (req, res) => {
+app.post('/api/media/sessions', requirePermission('media:provision'), idempotent, async (req, res) => {
   const tenant = requestTenant(req);
   if (!tenant) return res.status(403).json({ error: 'Tenant context mismatch' });
   const parsed = mediaProvisionSchema.safeParse(req.body);
   if (!parsed.success) return res.status(422).json({ error: parsed.error.issues[0].message });
   try {
-    const session = media.provisionSession(parsed.data);
+    const session = await inSpan('media.session.provisioned', { 'signalroom.tenant_id': tenant, 'signalroom.interview_id': parsed.data.interviewId, 'media.region': parsed.data.region }, async (span) => {
+      const provisioned = media.provisionSession(parsed.data);
+      span.setAttribute('media.session_id', provisioned.id);
+      span.setAttribute('media.provider_state', provisioned.providerState);
+      return provisioned;
+    });
+    recordMediaJoin({ tenantId: tenant, role: req.principal.roles?.[0] });
     appendAudit({ req, action: 'media.session.provisioned', target: { type: 'interview', id: session.interviewId }, metadata: { sessionId: session.id, region: session.region, providerState: session.providerState } });
     const response = { data: session };
     responses.set(res.locals.idempotencyKey, response);
@@ -553,8 +561,12 @@ app.post('/api/media/sessions/:id/state', requirePermission('media:control'), id
   responses.set(res.locals.idempotencyKey, response);
   return res.status(200).json(response);
 });
-app.post('/api/media/sessions/:id/ice-restart', requirePermission('media:control'), (req, res) => {
-  const result = media.iceRestart(req.params.id);
+app.post('/api/media/sessions/:id/ice-restart', requirePermission('media:control'), async (req, res) => {
+  const result = await inSpan('media.ice_restart', { 'signalroom.interview_id': req.params.id }, async (span) => {
+    const restarted = media.iceRestart(req.params.id);
+    span.setAttribute('media.restart_state', restarted?.state || 'none');
+    return restarted;
+  });
   if (!result) return res.status(404).json({ error: 'Media session not found' });
   return res.json({ data: result });
 });
@@ -977,6 +989,7 @@ io.on('connection', (socket) => {
     events.publish(createEvent('interview.room.joined', { tenantId: principal.tenantId, interviewId: interview.id, userId: principal.id }));
     auditLedger.append({ tenantId: principal.tenantId, actor: principal, action: 'room.joined', target: { type: 'interview', id: interview.id }, metadata: { transport: 'socket.io' } });
     recordRoomJoin({ tenantId: principal.tenantId, role: principal.roles[0] });
+    recordRoomJoinSignal({ tenantId: principal.tenantId, role: principal.roles[0] });
     return acknowledge({ ok: true, ...payload });
   });
 

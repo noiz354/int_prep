@@ -1,0 +1,58 @@
+:root {
+  --rtc-bg: #0a121b;
+  --rtc-card: #101d2b;
+  --rtc-border: rgba(148, 191, 222, 0.16);
+  --rtc-text: #e8f1f7;
+  --rtc-muted: #93adbf;
+  --rtc-accent: #4ec3ff;
+  --rtc-ok: #37d6a5;
+  --rtc-warn: #f5c36b;
+  --rtc-bad: #ff7a7a;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: radial-gradient(1000px 500px at 80% -10%, #14314a 0%, var(--rtc-bg) 55%) fixed; color: var(--rtc-text); line-height: 1.55; }
+
+.rtc-shell { max-width: 1080px; margin: 0 auto; padding: 24px 20px 48px; }
+.rtc-topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; gap: 14px; flex-wrap: wrap; }
+.rtc-eyebrow { display: block; font-size: 11px; letter-spacing: 0.14em; color: var(--rtc-accent); font-weight: 700; margin-bottom: 4px; }
+.rtc-topbar h1 { margin: 0; font-size: 24px; }
+.rtc-badge { font-size: 12px; font-weight: 700; padding: 5px 11px; border-radius: 999px; background: rgba(78, 195, 255, 0.12); color: var(--rtc-accent); text-transform: capitalize; }
+.rtc-badge.room-reconnecting { background: rgba(245, 195, 107, 0.14); color: var(--rtc-warn); }
+
+.rtc-stage { display: grid; grid-template-columns: 1fr 300px; gap: 18px; align-items: start; }
+.rtc-video-wrap { position: relative; }
+.rtc-video { width: 100%; aspect-ratio: 16/10; background: #06101a; border: 1px solid var(--rtc-border); border-radius: 16px; object-fit: cover; }
+.rtc-local-label { position: absolute; left: 14px; bottom: 14px; background: rgba(6, 16, 26, 0.75); border: 1px solid var(--rtc-border); border-radius: 999px; padding: 6px 12px; font-size: 12px; }
+.rtc-local-label i { width: 8px; height: 8px; border-radius: 50%; background: var(--rtc-ok); display: inline-block; margin-right: 6px; }
+.rtc-controls { position: absolute; right: 14px; bottom: 14px; display: flex; gap: 8px; }
+.rtc-btn { border: 1px solid var(--rtc-border); background: var(--rtc-card); color: var(--rtc-text); border-radius: 10px; padding: 9px 14px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.rtc-btn:hover { border-color: var(--rtc-accent); }
+.rtc-btn.primary { background: linear-gradient(135deg, #2bb3e0, #4ec3ff); color: #06222b; border: 0; }
+.rtc-btn.is-off { background: rgba(255, 122, 122, 0.14); color: var(--rtc-bad); border-color: rgba(255, 122, 122, 0.4); }
+.rtc-btn.danger { color: var(--rtc-bad); border-color: rgba(255, 122, 122, 0.4); }
+
+.rtc-panel { background: var(--rtc-card); border: 1px solid var(--rtc-border); border-radius: 16px; padding: 18px; }
+.rtc-panel h2 { margin: 0 0 12px; font-size: 16px; }
+.rtc-quality-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.rtc-quality-grid article { background: rgba(6, 16, 26, 0.6); border: 1px solid var(--rtc-border); border-radius: 12px; padding: 12px; }
+.rtc-quality-grid span { display: block; font-size: 11px; color: var(--rtc-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.rtc-quality-grid strong { font-size: 20px; }
+.quality-good { color: var(--rtc-ok); } .quality-fair { color: var(--rtc-warn); } .quality-poor { color: var(--rtc-bad); }
+.rtc-state-row { display: flex; gap: 16px; margin: 14px 0; font-size: 13px; color: var(--rtc-muted); }
+.rtc-state-row b { color: var(--rtc-text); }
+.rtc-micro { font-size: 12px; color: var(--rtc-muted); margin: 12px 0 0; }
+.rtc-micro code { background: rgba(78, 195, 255, 0.1); padding: 1px 5px; border-radius: 5px; }
+
+.rtc-welcome { background: var(--rtc-card); border: 1px solid var(--rtc-border); border-radius: 16px; padding: 40px 28px; text-align: center; }
+.rtc-welcome h2 { margin: 0 0 8px; }
+.rtc-welcome p { color: var(--rtc-muted); max-width: 460px; margin: 0 auto 20px; }
+
+.rtc-presence { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 18px; font-size: 13px; color: var(--rtc-muted); }
+.rtc-presence b { color: var(--rtc-text); }
+.rtc-presence span { background: var(--rtc-card); border: 1px solid var(--rtc-border); border-radius: 999px; padding: 5px 12px; }
+
+@media (max-width: 860px) {
+  .rtc-stage { grid-template-columns: 1fr; }
+  .rtc-controls { position: static; margin-top: 10px; }
+}

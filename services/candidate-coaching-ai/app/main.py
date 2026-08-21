@@ -8,6 +8,9 @@ from datetime import datetime, timezone
 from typing import Literal
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
+from otel_logging import get_logger, log_event
+
+logger = get_logger("candidate-coaching-ai")
 
 MODEL_VERSION = "candidate-readiness-demo-v2"
 app = FastAPI(title="SignalRoom Ready AI", version="0.2.0")
@@ -55,6 +58,7 @@ def health():
 @app.post("/v1/role-intelligence")
 def role_intelligence(request: RoleIntelligenceRequest, x_tenant_id: str | None = Header(default=None)):
     assert_safe_context(request, x_tenant_id)
+    log_event(logger, "coaching.role_intelligence", tenant_id=request.tenant_id, competency_count=len(request.competencies))
     return {
         "role_title": request.role_title,
         "skill_map": [{"skill": item, "practice_focus": "explain a truthful example, constraints, trade-offs, and validation"} for item in request.competencies],
@@ -103,6 +107,7 @@ def practice_feedback(request: FeedbackRequest, x_tenant_id: str | None = Header
     has_outcome = any(term in request.answer.lower() for term in ["result", "impact", "improved", "reduced", "increased", "%"])
     has_tradeoff = any(term in request.answer.lower() for term in ["trade-off", "constraint", "however", "risk", "alternative"])
     has_validation = any(term in request.answer.lower() for term in ["test", "monitor", "measure", "validate", "metric"])
+    log_event(logger, "coaching.practice_feedback", tenant_id=request.tenant_id, mode=request.practice_mode, word_count=word_count, has_outcome=has_outcome)
     return {
         "feedback": [
             {"area": "evidence", "observation": "Add a concrete outcome, decision, or metric from your own experience."},

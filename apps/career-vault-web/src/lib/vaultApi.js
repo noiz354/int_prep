@@ -118,7 +118,8 @@ export async function setProviderEnabled(providerId, enabled) {
   if (useRemote) return request(`/v1/providers/${providerId}`, { enabled });
   await wait();
   const providers = await listProviders();
-  return providers.find((p) => p.id === providerId);
+  const target = providers.find((p) => p.id === providerId);
+  return { ...target, enabled, action: enabled ? 'disable' : 'connect' };
 }
 
 export const demoData = { demoOpportunities, demoArtifacts, demoTimeline };

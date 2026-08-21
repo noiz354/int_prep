@@ -301,3 +301,39 @@ Base URL: `http://localhost:8788`
 | `POST /v1/integrity/analyze` | `consent_for_integrity_processing` | Returns an advisory review level; never an automated decision. |
 
 All endpoints support `X-Tenant-Id`; a mismatched tenant is rejected.
+
+## Observability & tracing (candidate contexts)
+
+Both `services/career-vault-api` and `services/candidate-readiness-api` instrument requests
+via `packages/observability`:
+
+- **Correlation ID:** every response carries `x-request-id`; every structured log line
+  includes `request_id`, `route`, `method`, `status_class`, `duration_ms`, and a hashed
+  `tenant` (never raw tenant IDs or PII).
+- **Spans (business operation names):** `career_vault.rag.ask`, `career_vault.rag.plan`,
+  `career_vault.email_import`, `candidate_readiness.practice.submit` — with attributes such
+  as `abstention`, `abstention_reason`, `citation_count`, `practice_mode`, `readiness_signal`.
+- **RED metrics:** `http.server.requests`, `http.server.errors`, `http.server.duration`
+  (histogram) with bounded labels; `career_vault.rag.abstentions` counter by reason.
+- **Enablement:** `OTEL_ENABLED=true` + `OTEL_EXPORTER_OTLP_ENDPOINT` (default
+  `http://localhost:4318`). Disabled in tests and by default; fail-soft on collector outage.
+- **Python services** emit structured JSON logs (stdlib `logging`) with `event`,
+  `tenant` hash, and bounded outcome fields; OTLP export is a documented follow-up.
+
+See `scripts/otel/README-observability.md` for the runbook (Jaeger UI `:8786/16686`,
+Prometheus `:8784`, Grafana `:8783`, first queries, SLOs).
+
+## RTC Interview app (`apps/rtc-interview-web`)
+
+A real WebRTC interview room on port `5192` (Vite proxy → `apps/api` `:8787`):
+
+- **Device consent:** `getUserMedia` is user-triggered; tracks stop on leave/disconnect.
+- **Local loopback peer:** `RTCPeerConnection` offer/answer negotiation (no SFU yet) with
+  ICE restart and connection-state visibility.
+- **Media quality telemetry:** every 2s `getStats()` (RTT, jitter, packet loss) → `POST /api/data/telemetry`
+  → `media.rtc.latency_ms` / `media.rtc.packet_loss_percent` / `media.rtc.jitter_ms` histograms.
+- **Presence:** authenticated Socket.IO `room.join` / `presence.updated` (same JWT seam).
+- **Observability:** every `apps/api` response carries `x-request-id`; structured JSON logs;
+  spans `media.session.provisioned`, `media.ice_restart`, `scorecard.submit`, `room.join`.
+
+Production media still requires the approved SFU/WebRTC provider (see `docs/ARCHITECTURE.md`).

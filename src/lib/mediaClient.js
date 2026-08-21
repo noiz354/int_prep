@@ -8,6 +8,18 @@ import { apiFetch } from './platformApi.js';
 
 export const MEDIA_STATES = ['provisioning', 'ready', 'reconnecting', 'audio-only', 'ended'];
 
+/** User-triggered device access (AGENTS: never auto-request). Stops tracks after use. */
+export async function requestDeviceTracks() {
+  if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+    throw new Error('Media devices are not available in this browser.');
+  }
+  return navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 } }, audio: { echoCancellation: true, noiseSuppression: true } });
+}
+
+export async function stopDeviceTracks(stream) {
+  stream?.getTracks().forEach((track) => track.stop());
+}
+
 function localSession(interviewId) {
   return {
     id: `media-local-${interviewId}`,

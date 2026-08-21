@@ -20,7 +20,10 @@
     "career:vault:web:build": "npm --prefix apps/career-vault-web run build",
     "career:vault:api": "npm --prefix services/career-vault-api run dev",
     "career:vault:domain:test": "npm --prefix packages/career-vault-domain run test",
-    "career:vault:rag:test": "cd services/career-vault-rag && python3 -m unittest test_rag"
+    "career:vault:rag:test": "cd services/career-vault-rag && python3 -m unittest test_rag",
+    "rtc:interview:web:build": "npm --prefix apps/rtc-interview-web run build",
+    "rtc:interview:web": "npm --prefix apps/rtc-interview-web run dev",
+    "observability:test": "npm --prefix packages/observability run test"
   },
   "dependencies": {
     "@opentelemetry/api": "^1.9.1",
