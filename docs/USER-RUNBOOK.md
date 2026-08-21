@@ -14,6 +14,7 @@ Source of capability truth: `src/data/capabilityRegistry.js` (also `docs/CAPABIL
 |---|---|---|
 | Open the polished UI, click around seeded dashboards | Yes — `npm run dev` | — |
 | Call the real local API with a sign-in gate | Yes — `npm run start:usable` | — |
+| Create/schedule/search interviews as the signed-in recruiter | Yes — persists in `data/signalroom-store.json` | U2 |
 | Log in as yourself via Keycloak | Adapter ready; Docker IdP not running here | when Keycloak env is set |
 | Keep interviews after restart | Yes — file store | Mongo when `MONGO_URL` is set |
 | Two people in a real SFU room | No. RTC app = local camera loopback | U3 |
