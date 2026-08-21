@@ -2,7 +2,7 @@
 
 > **Source of truth (code):** `src/data/capabilityRegistry.js`  
 > **Consumed by:** Feature Catalog, Control Center, Enterprise Scale, Ready Trust screen, Vault Trust screen, `progess.md`, contract tests.  
-> **Phase:** U6 ops honesty. No provider is `provider_wired`. Nothing is `staging_verified` or `production_deployed`.
+> **Phase:** U7 launch bar. No provider is `provider_wired`. Nothing is `staging_verified` or `production_deployed`.
 
 ## State model
 
@@ -17,7 +17,7 @@
 
 Almost every row also has `productionGate: blocked_on_decision` until credentials, DPA/self-host ownership, and UAT exist. That gate is **not** the same as the user-visible `state`.
 
-## Counts (after U6)
+## Counts (after U7)
 
 | Product | Total | mocked | local_only | provider_wired | staging_verified | production_deployed | blocked_on_decision |
 |---|---:|---:|---:|---:|---:|---:|---:|

@@ -91,6 +91,8 @@ rekaman/transkrip, keputusan rekrutmen, audit trail, AI prompts + retrieval data
 ## Kesimpulan
 
 Semua kontrol yang bisa diverifikasi lokal sudah **diimplementasikan + diuji**.
+Phase U7 (launch bar) **tidak** mengubah trust boundary ini: `start:usable` tetap
+local_only (demo JWT, file store, P2P).
 Bagian yang butuh akun vendor, kredensial, DPA, dan approval organisasi tetap
 berlabel **blocked on provider decision** — konsisten dengan aturan prompt
 (rule 6: "If a required decision or credential is missing, build only the

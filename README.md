@@ -1,138 +1,103 @@
 # SignalRoom — Enterprise Interview Intelligence Platform
 
-A polished, runnable **100-feature foundation** for the enterprise video-interviewing PRD. Every PRD item has a local implementation boundary or provider-ready adapter; external providers remain intentionally unconfigured until production decisions are approved. The platform uses a React/Vite experience, Express control plane, Python AI adapter, and contract-first Kafka-compatible event adapter.
+A runnable **local** interview product plus Candidate Readiness (Ready) and Career Vault. Every PRD/CR/CV ID has an adapter or a labelled gap. **Nothing is `staging_verified` or `production_deployed`.**
 
-> **What is runnable now:** the responsive React product experience and interactive workflows. The API and Python service are runnable locally as realistic, privacy-aware mocks. They intentionally do not claim to be live WebRTC, Kafka, ATS, SSO, or model-provider deployments.
+> **What is runnable now:** one command (`npm run start:usable`) starts the interview API + UI, and Ready + Vault unless you set `START_READY_VAULT=false`. Sign-in is explicit (labelled demo JWT or OIDC when configured). Data survives restart in gitignored JSON files. Live Studio is **peer-to-peer WebRTC**, not LiveKit. Copilot is consent-gated (Ollama if up, else labelled fallback). Integrations say **sandbox mock / not connected**, never “Connected to Greenhouse”.
 
-## Experience included
+## What a human can complete (local_only)
 
-- Interview operations dashboard with schedules, role briefs, health, and live-session entry.
-- A responsive **Live Studio** with simulated WebRTC room state, transcript controls, private AI copilot, independent scorecard, collaborative code workspace, and optional Socket.IO room presence.
-- A consent-aware **Candidate Portal** with browser-controlled camera/microphone preflight, connection state, accommodation guidance, and encrypted, time-limited offline setup recovery.
-- AI intelligence, Kafka/data pulse, trust center, reliability, integrations, **Control Center**, **Enterprise Scale**, and a searchable catalog covering all **100 PRD features** (100 marked as local foundations/provider-ready adapters).
-- Keyboard command menu (`Cmd/Ctrl + K`), dark mode, responsive navigation, semantic controls, focus states, and reduced-motion support.
-- Signed local demo sessions, tenant/role authorization, hash-chained audit entries, consent API, browser event bus, and scorecard persistence seams.
+| Journey | Status |
+|---|---|
+| Sign in (Maya / Alex demo buttons; OIDC if Keycloak env is set) | Works locally |
+| Recruiter: create/schedule interview, invitation token, search | Persists in `data/signalroom-store.json` |
+| Candidate portal: invite → consent → waiting room → join P2P room | Same-machine browsers; not SFU/TURN |
+| Intelligence / Live Studio copilot | Consent required; labelled fallback if Ollama down |
+| Ready: JD, plan, practice, export/delete | File store; Alex JWT; `live_assessment` rejected |
+| Vault: opportunity, artifact, RAG/abstain, share, export/delete | File store; Gmail OAuth blocked |
+| Data Pulse / Trust / Operations / Integrations | Live probes; honest connected vs mocked |
 
-## Run the app
+## What is blocked or still mocked
+
+| Item | Why |
+|---|---|
+| Keycloak / Mongo as the default path | No Docker in this environment; OIDC 503 until env is set |
+| LiveKit SFU, TURN, recording egress | P2P only; prep SFU (CR-30) blocked |
+| Gmail / calendar OAuth (CV-05, CV-07) | No OAuth app |
+| Payments (CR-29), coding sandbox (CR-21), ATS OAuth (CR-48) | Provider decision |
+| Transcript ASR, Monaco/CRDT, executive analytics numbers | Still mocked UI (FE-05, FE-06, EO-09, …) |
+
+Honest per-ID labels: [`docs/CAPABILITY-REGISTRY.md`](docs/CAPABILITY-REGISTRY.md). Human steps: [`docs/USER-RUNBOOK.md`](docs/USER-RUNBOOK.md). UAT: [`docs/UAT-EVIDENCE.md`](docs/UAT-EVIDENCE.md). Threat model is unchanged in spirit: [`docs/THREAT-MODEL.md`](docs/THREAT-MODEL.md), [`docs/HONEST-LIMITATIONS.md`](docs/HONEST-LIMITATIONS.md).
+
+## 15-minute local path
 
 ```bash
 npm install
-npm run dev
-```
-
-Open the Vite URL shown in the terminal. The development server is configured to bind to `0.0.0.0` for a hosted workspace preview.
-
-To drive the UI through the local API (still demo JWT and in-memory data):
-
-```bash
+cp -n .env.example .env   # demo values only — no real secrets
 npm run start:usable
 ```
 
-Human steps, ports, and collisions: [User runbook](docs/USER-RUNBOOK.md). Honest per-ID labels: [Capability registry](docs/CAPABILITY-REGISTRY.md).
+1. Open the Vite URL on port **5190** (hosted previews use the platform hostname, not localhost).
+2. **Use demo identity · Maya Patel** (talent ops). Dashboard is empty until you create an interview.
+3. Schedule an interview (optional invite `alex.morgan@example.test`). Refresh — it is still there.
+4. Optional: Ready **5193** / Vault **5191** as **Alex**.
+5. Feature Catalog shows `Mocked UI` / `Local only` / `Blocked on decision` — not “production”.
 
-### Run the authenticated/realtime local path
+Browser code uses **relative** `/api` and `/socket.io`. Servers bind `0.0.0.0`.
+
+### Manual equivalent
 
 ```bash
-# Terminal 1 — Express + JWT demo adapter + Socket.IO + OpenTelemetry hooks
 npm run api
-
-# Terminal 2 — browser routes its relative /api and /socket.io requests through Vite
 VITE_USE_API=true npm run dev
 ```
 
-The development login is intentionally restricted to seeded demo identities. Replace it with an approved OIDC/SAML/SCIM provider before any real deployment.
+`npm run dev` alone is the seeded UI (demo mode). Do not call that production.
 
-### Optional Python AI adapter
+### Optional Docker providers
 
-```bash
-
-# Python AI adapter (Python 3.11+ recommended)
-python -m venv .venv
-. .venv/bin/activate
-pip install -r services/ai/requirements.txt
-AI_PORT=8788 uvicorn services.ai.main:app --host 0.0.0.0 --port 8788
-```
-
-### Optional local provider adapters (Docker)
-
-Lightweight, opt-in containers that stand in for the production-backlog
-providers so each capability has a runnable local boundary. Nothing runs by
-default; start only the profile you need:
+Nothing in compose starts by default. Profiles are adapters, not production:
 
 ```bash
-# Identity: OIDC/SAML/SCIM/MFA (Keycloak)
 docker compose -f docker-compose.providers.yml --profile identity up -d
-
-# Data: encrypted MongoDB + Vault (KMS) + Redpanda (Kafka/Schema Registry) + MinIO (lakehouse)
 docker compose -f docker-compose.providers.yml --profile data up -d
-
-# Media: SFU harness + coturn (TURN) + recording storage + isolated code sandbox
-docker compose -f docker-compose.providers.yml --profile media up -d
-
-# AI/RAG: Qdrant (vector store) in Docker; Ollama runs natively on the Windows host
-#   (OLLAMA_HOST=0.0.0.0) and is reachable from WSL at the gateway IP — see .env.example
-docker compose -f docker-compose.providers.yml --profile ai up -d
-
-# Integrations: WireMock stubs for ATS/HRIS/calendar/comms OAuth
-docker compose -f docker-compose.providers.yml --profile integrations up -d
-
-# Delivery: OTel Collector + Prometheus + Jaeger + Grafana
-docker compose -f docker-compose.providers.yml --profile delivery up -d
 ```
 
-These are **provider-ready local adapters** — the SignalRoom control plane still
-enforces consent, tenant isolation, authorization, and audit on top of them.
-They are intentionally not production deployments.
+Port collisions: Redpanda **8790** vs Ready API; MinIO **8792** vs Vault API. See the runbook.
 
 ### Ports
 
 | Service | Port |
 |---|---|
-| Vite dev server | `5190` |
-| Vite preview | `4190` |
-| Express API (`npm run api`) | `8787` |
-| Python AI adapter | `8788` |
-| Local providers (Docker) | `8780`–`8802` (see `docker-compose.providers.yml`) |
-
-Run the contract and domain tests:
+| Interview Vite | 5190 |
+| Vault Vite | 5191 |
+| RTC Vite | 5192 |
+| Ready Vite | 5193 |
+| Interview API | 8787 |
+| Ready API | 8790 |
+| Vault API | 8792 |
 
 ```bash
 npm test
-```
-
-Generate the browser-safe feature dataset again after editing either PRD part:
-
-```bash
-node scripts/generate-feature-data.mjs
+npm run build
 ```
 
 ## Repository map
 
 ```text
-src/                              React experience and local demo adapters
-  components/                     Product domains, Control Center, Enterprise Scale, reusable UI
-  data/features.js                Generated catalog of all 100 PRD capabilities
-  data/implementationStatus.js    Canonical 100-feature foundation registry
-  lib/                            Browser event, scorecard, and API adapters
-apps/api/                         Express API + repository, foundation, and completion domain seams
-services/ai/                      Consent-aware FastAPI adapter
-services/event-gateway/           Event envelope + in-memory/Kafka-style adapters
-docs/                             PRD, architecture, API, and implementation status
+src/                              Interview React app
+apps/api/                         Interview control plane
+apps/candidate-readiness-web/     Ready UI (5193)
+apps/career-vault-web/            Vault UI (5191)
+apps/rtc-interview-web/           RTC room (5192)
+services/                         Ready/Vault APIs, AI, event gateway
+docs/USER-RUNBOOK.md              Human boot path
+docs/UAT-EVIDENCE.md              Self-hosted UAT P0 evidence
 ```
 
 ## Engineering posture
 
-This implementation follows a performance- and user-centered approach:
+- **No fake production claims.** Registry: mocked / local_only / blocked_on_decision. User-usable count is **0** until a provider is actually up and UAT’d.
+- **Trust:** labelled demo or OIDC, tenant RBAC, consent gates, hash-chained audit, assistive AI only (no auto hire/reject).
+- **A11y:** keyboard, focus, reduced-motion in the shell; no axe UAT pack yet.
 
-- **Progressive complexity:** native controls, no heavy UI framework, and a fast static initial shell.
-- **Measured budget:** current production build is approximately **119 KB gzipped JavaScript** and **21 KB gzipped CSS** (before browser compression variations); the Socket.IO client is only activated when `VITE_USE_API=true`.
-- **Accessibility:** keyboard navigation, semantic tabs and dialogs, clear focus styling, responsive layouts, live-status messaging, browser-native device permission prompts, and `prefers-reduced-motion` support.
-- **Trust by design:** signed tenant sessions, explicit consent controls, permission checks, hash-chained audit entries, tenant context in event contracts, human-review language, and idempotent mutation seams.
-- **No fake production claims:** integrations and media/AI event flows use labeled mocks/adapters until a provider, credentials, and deployment environment are chosen.
-
-See [Architecture](docs/ARCHITECTURE.md), [API contract](docs/API.md), [Tech stack & feature map](docs/TECH-STACK.md), [Foundation Batch 01](docs/FOUNDATION-BATCH-01.md), [50% feature delivery](docs/BATCH-50-FEATURES.md), [100% feature delivery](docs/BATCH-100-FEATURES.md), and [implementation status](docs/IMPLEMENTATION-STATUS.md) for the production handoff.
-
-Coding-agent prompts:
-
-- [Finish stubs (Phases 0–5, done)](PROMPT-FINISH-STUBS-PHASED.md) — adapter boundaries only.
-- [User-usable production path (Phases U0–U7)](PROMPT-USER-USABLE-PRODUCTION.md) — wire providers + replace mocked UI so a human can actually complete journeys. Start at **Phase U0**.
+Coding-agent prompts: [Finish stubs (done)](PROMPT-FINISH-STUBS-PHASED.md) · [User-usable path U0–U7](PROMPT-USER-USABLE-PRODUCTION.md) (U7 is the last phase of that prompt).

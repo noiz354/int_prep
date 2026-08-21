@@ -44,8 +44,8 @@ export function FeatureCatalog({ onToast }) {
       <section className="catalog-hero surface-card">
         <div>
           <span className="pill pill-amber"><Icon name="layers" size={14} /> HONEST DELIVERY MAP</span>
-          <h2>Every PRD item has an adapter. <em>None are production deployed.</em></h2>
-          <p>Labels come from the shared capability registry. Mocked UI, in-memory APIs, and missing providers are called out instead of “implemented foundation”.</p>
+          <h2>Every PRD item has an adapter. <em>None are staging or production.</em></h2>
+          <p>U0–U7 is a local launch bar. Mocked UI, file-store APIs, and missing providers stay labelled. User-usable count is zero until a provider is up and UAT’d.</p>
         </div>
         <div className="catalog-count">
           <span>PRD FEATURES</span>

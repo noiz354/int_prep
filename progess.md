@@ -2,8 +2,9 @@
 
 > **Last updated:** 21 August 2026 (WIB)  
 > **PRD feature-foundation coverage:** **100 / 100 adapters**  
-> **User-usable (wired + staging + production):** **0 / 168** (100 PRD + 48 CR + 20 CV)  \n> **Registry after U6:** mocked **27** · local_only **135** · blocked **6**  
-> **Delivery truth:** Every PRD item has a tested local foundation or provider-ready adapter. Feature Catalog now labels `mocked` / `local_only` / `blocked_on_decision`. Nothing is production deployed.
+> **User-usable (wired + staging + production):** **0 / 168** (100 PRD + 48 CR + 20 CV)  
+> **Registry after U7:** mocked **27** · local_only **135** · blocked **6**  
+> **Delivery truth:** Local launch bar (`npm run start:usable`) is complete. Feature Catalog labels `mocked` / `local_only` / `blocked_on_decision`. Nothing is staging or production deployed.
 
 ## SignalRoom Ready — Candidate Readiness & Coaching (new bounded context)
 
@@ -114,6 +115,7 @@ fallback to the simulated room. SFU provider remains `blocked-on-provider-decisi
 | 100% feature foundation | ✅ Complete | `docs/BATCH-100-FEATURES.md`, Enterprise Scale control center |
 | Coding-agent skill pack | ✅ Complete | `.agents/skills/` (36 skills), `AGENTS.md`, `references/`, Claude/Copilot/Cursor compatibility |
 | Phase U0 — truth registry + human runbook | ✅ Complete | `capabilityRegistry.js`, Feature Catalog states, `docs/USER-RUNBOOK.md`, `npm run start:usable` |
+| Phases U1–U7 user-usable path | ✅ Complete (local_only) | File persist, P2P rooms, copilot, Ready/Vault, ops honesty, launch bar |
 | External provider production rollout | ⏳ Pending | Requires vendor accounts, secrets, cloud infrastructure, and approval |
 
 ## Coverage by PRD domain
@@ -229,7 +231,11 @@ Phases 0–5 in `PROMPT-FINISH-STUBS-PHASED.md` are complete (tested boundaries;
 
 **Phase U5 complete:** Ready/Vault JWT + file persistence; demo.js not source of truth; live_assessment lockout; UAT P0 self-host evidence. Gmail/payments still blocked.
 
-Next: **Phase U6** (data plane / ops honesty) after approval.
+**Phase U6 complete:** KafkaProducerAdapter + schema registry when Redpanda is up; Data Pulse/Trust/Ops/Integrations read live probes; WireMock labelled sandbox mock; OTLP exporter + support trace id.
+
+**Phase U7 complete:** `npm run start:usable` boots interview + Ready + Vault; README “What is runnable now”; `docs/UAT-EVIDENCE.md`; CI companion builds. Still **0** staging_verified / production_deployed.
+
+This is the last phase of `PROMPT-USER-USABLE-PRODUCTION.md` unless a new prompt is issued.
 
 ## Production deployment backlog
 

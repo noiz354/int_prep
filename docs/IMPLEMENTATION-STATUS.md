@@ -12,7 +12,11 @@ A single schema in `src/data/capabilityRegistry.js` is the source of truth for F
 | Ready CR-01…48 | 48 | 18 | 26 | 0 | 0 | 0 | 4 |
 | Vault CV-01…20 | 20 | 1 | 17 | 0 | 0 | 0 | 2 |
 
-**User-usable count: 0.** Human boot path: `npm run start:usable` and `docs/USER-RUNBOOK.md`.
+**User-usable count: 0.** Human boot path: `npm run start:usable` and `docs/USER-RUNBOOK.md`. UAT: `docs/UAT-EVIDENCE.md`.
+
+## Phase U7 — launch bar
+
+One command boots interview + Ready + Vault. README states which journeys work, which are mocked, and which are blocked. Remaining UAT P0 that can run self-hosted is recorded; Gmail/payments/SFU stay `blocked_on_decision`. Companion web builds were verified locally (`candidate:readiness:web:build`, `career:vault:web:build`, `rtc:interview:web:build`). Updating `.github/workflows/ci.yml` needs GitHub `workflows` permission. Threat model and honest limitations are unchanged in spirit. **No ID moved to `staging_verified`.**
 
 ## Phase U1 — identity + persistence + session
 

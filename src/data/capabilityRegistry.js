@@ -171,7 +171,7 @@ export const capabilities = [
   I('DO-03', 'mocked', 'U3', ['RT-M-02'], 'Global media edge is not deployed; rooms are local.'),
   I('DO-04', 'local_only', 'U7', [], 'GitHub Actions workflow exists in-repo; org secrets and production deploys are not configured.'),
   I('DO-05', 'local_only', 'U2', ['BE-M-03'], 'Feature flags toggle in memory for the API process.'),
-  I('DO-06', 'local_only', 'U7', [], 'Contract and two browser-utility tests run; no WebRTC/a11y/load matrix.'),
+  I('DO-06', 'local_only', 'ops', [], 'Contract + UI + observability tests run in CI; no WebRTC/a11y/load matrix.'),
   I('DO-07', 'local_only', 'U7', ['BE-M-07'], 'OTLP HTTP exporter is wired when OTLP_ENDPOINT is set. Failures show a support trace id.'),
   I('DO-08', 'local_only', 'U7', ['FE-M-12'], 'Operations shows process-local request counters, not a 30-day SLO or on-call route.'),
   I('DO-09', 'mocked', 'U7', ['FE-M-12'], 'Synthetic/RUM cards are presentation, not probes.'),

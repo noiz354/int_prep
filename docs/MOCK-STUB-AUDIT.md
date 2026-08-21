@@ -42,7 +42,7 @@
 | FE-M-13 | `Integrations.jsx` | **U6:** WireMock = “Sandbox mock”, never “Connected to Greenhouse”. | OAuth apps, field mapping, reconciliation |
 | FE-M-14 | `FoundationHub.jsx` | Real local API may respond, but jobs/artifacts/data quality/flags/SLO/integrations remain in-memory contracts | Durable queue/storage/provider wiring and real operations data |
 | FE-M-15 | `CompletionHub.jsx` | Provider-ready completion actions return deterministic local results | Replace one action/domain at a time with real provider implementation and status |
-| FE-M-16 | `FeatureCatalog.jsx` | All 100 PRD IDs display as implemented foundations | Reclassify each feature truthfully: mocked, local, provider-ready, staging, production |
+| FE-M-16 | `FeatureCatalog.jsx` | **U0–U7:** truthful states from the capability registry. None are staging/production. | Keep labels honest as providers come up |
 
 ### 1.3 Candidate Portal and Candidate Readiness scaffold
 

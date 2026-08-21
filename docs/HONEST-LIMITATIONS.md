@@ -79,4 +79,11 @@ terlampir** — lihat `docs/PROVIDER-UNBLOCKING-CHECKLIST.md` dan
 
 ---
 
-*Dokumen terkait: `docs/PRODUCTION-DECISION-BRIEF.md` · `docs/PROVIDER-UNBLOCKING-CHECKLIST.md` · `docs/THREAT-MODEL.md` · `docs/IMPLEMENTATION-STATUS.md` · `progess.md`*
+## 6. Launch bar (U7) bukan production
+
+`npm run start:usable` adalah jalur **local_only** untuk engineer baru. Threat model
+(`docs/THREAT-MODEL.md`) dan prinsip di atas **tidak berubah**: file store, demo JWT,
+P2P WebRTC, dan WireMock sandbox bukan bukti `staging_verified` atau
+`production_deployed`.
+
+*Dokumen terkait: `docs/PRODUCTION-DECISION-BRIEF.md` · `docs/PROVIDER-UNBLOCKING-CHECKLIST.md` · `docs/THREAT-MODEL.md` · `docs/IMPLEMENTATION-STATUS.md` · `docs/UAT-EVIDENCE.md` · `progess.md`*
