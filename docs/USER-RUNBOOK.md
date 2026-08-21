@@ -18,7 +18,7 @@ Source of capability truth: `src/data/capabilityRegistry.js` (also `docs/CAPABIL
 | Log in as yourself via Keycloak | Adapter ready; Docker IdP not running here | when Keycloak env is set |
 | Keep interviews after restart | Yes — file store | Mongo when `MONGO_URL` is set |
 | Two browsers in the same interview room | Yes — P2P WebRTC on the same machine. Not LiveKit/TURN | U3 done; SFU still later |
-| Ask a real LLM | No. Deterministic adapters | U4 |
+| Ask a grounded copilot question | Yes — consent required; Ollama if up, else labelled fallback | U4 |
 | Ready / Vault with your own durable data | Demo UI + optional in-memory APIs | U5 |
 
 ---
@@ -68,6 +68,16 @@ Open the Vite URL printed in the terminal (hosted previews use the platform host
 4. You should see the remote video tile. This is **peer-to-peer**, not LiveKit. Leave stops tracks.
 
 Screen share uses the browser’s display picker. Whiteboard is a local canvas synced over Socket.IO, not a CRDT.
+
+### Ask the copilot (Phase U4)
+
+1. Sign in as Maya.
+2. Open **Intelligence**. Toggle **I consent to AI assistance**.
+3. Type a question → **Ask copilot**.
+4. You get a grounded follow-up **or** an abstention. The card shows provider (`ollama` vs `deterministic-fallback`) and model version.
+5. Live Studio copilot uses the same consent toggle + Refresh.
+
+Ollama/Qdrant are probed; this environment usually has neither, so the labelled fallback is expected. Transcript captions are still seeded (no ASR).
 
 **Create a Keycloak user (for Phase U1, not wired yet):**
 

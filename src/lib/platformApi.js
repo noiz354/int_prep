@@ -143,6 +143,23 @@ export const platformApi = {
     await wait(100); return { artifact: { id: localId('artifact'), interviewId, ...artifact, encrypted: true, status: 'ready' }, job: { id: localId('job'), kind: 'artifact.process', status: 'queued' } };
   },
 
+  async getAiStatus() {
+    if (useApi) return (await apiRequest('/api/ai/status')).data;
+    return { ollama: { configured: false, ok: false, reason: 'ui-local' }, qdrant: { configured: false, ok: false, reason: 'ui-local' }, generation: 'deterministic-fallback', retrieval: 'local-keyword' };
+  },
+
+  async suggestGroundedFollowUp(payload) {
+    if (useApi) {
+      return (await apiRequest('/api/ai/follow-up-grounded', {
+        method: 'POST',
+        headers: { 'Idempotency-Key': `followup-g-${crypto.randomUUID()}` },
+        body: JSON.stringify(payload),
+      })).data;
+    }
+    await wait(80);
+    return { question: 'How would you reconcile a local edit with a newer remote edit without silently losing intent?', competency: 'Systems thinking', provider: 'deterministic-fallback', modelVersion: 'local-heuristic', fallback: true, citations: ['approved rubric'], requiresHumanReview: true, requiresHumanJudgment: true };
+  },
+
   async suggestFollowUp(payload) {
     if (useApi) return (await apiRequest('/api/ai/follow-up', { method: 'POST', headers: { 'Idempotency-Key': `followup-${crypto.randomUUID()}` }, body: JSON.stringify(payload) })).data;
     await wait(100); return { question: 'How would you reconcile a local edit with a newer remote edit without silently losing intent?', competency: 'Systems thinking', rubricId: 'rubric-frontend-v6', sourceVersion: '6.0', confidence: .84, requiresHumanJudgment: true, evidence: ['approved rubric', 'current transcript'] };

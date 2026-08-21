@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from './Icon.jsx';
-import { copilotSeed, intelligenceSignals, scorecardCriteria, transcriptSeed } from '../data/platformData.js';
+import { scorecardCriteria, transcriptSeed } from '../data/platformData.js';
+import { platformApi } from '../lib/platformApi.js';
 import { calculateScorecard, recommendationFor } from '../lib/scorecard.js';
 import { connectInterviewRoom } from '../lib/realtimeClient.js';
 import { applyMediaEnhancement, applyTrackConstraints, createWhiteboardSession, provisionMediaSession, requestDeviceTracks, requestDisplayMedia, stopDeviceTracks } from '../lib/mediaClient.js';
@@ -31,18 +32,22 @@ function LiveTile({ stream, label, muted, blur, compact }) {
   );
 }
 
-function CopilotPanel({ onAction, queued }) {
+function CopilotPanel({ queued, suggestion, loading, consent, onConsent, onRefresh, onQueue }) {
   return <div className="room-panel-body copilot-panel">
-    <div className="panel-intro"><span className="copilot-star"><Icon name="sparkles" size={16} /></span><div><strong>Private copilot</strong><p>Seeded until Phase U4 wires a model</p></div><span className="privacy-lock"><Icon name="lock" size={13} /> Private</span></div>
-    <div className="signal-mini-grid">
-      {intelligenceSignals.slice(0, 2).map((signal) => <div key={signal.label}><span>{signal.label}</span><strong>{signal.value}</strong><i><b style={{ width: `${signal.progress}%` }} /></i></div>)}
-    </div>
-    <div className="copilot-section-title"><span>LIVE GUIDANCE</span><button onClick={() => onAction('Generated a fresh, rubric-grounded prompt.')}>Refresh</button></div>
+    <div className="panel-intro"><span className="copilot-star"><Icon name="sparkles" size={16} /></span><div><strong>Private copilot</strong><p>{suggestion?.provider || 'Ask after consent'} · {suggestion?.modelVersion || '—'}</p></div><span className="privacy-lock"><Icon name="lock" size={13} /> Private</span></div>
+    <label className="approval-toggle"><span><b>AI assistance consent</b><small>Required before a model or fallback call</small></span><button className={`toggle ${consent ? 'is-on' : ''}`} onClick={onConsent} aria-pressed={consent}><i /></button></label>
+    <div className="copilot-section-title"><span>GROUNDED GUIDANCE</span><button onClick={onRefresh} disabled={loading}>{loading ? 'Asking…' : 'Refresh'}</button></div>
     <div className="copilot-cards">
-      {copilotSeed.map((item) => <article className={`copilot-card copilot-${item.type}`} key={item.id}><span className="copilot-card-icon"><Icon name={item.type === 'coverage' ? 'target' : item.type === 'followup' ? 'sparkles' : 'check'} size={16} /></span><div><small>{item.title}</small><p>{item.text}</p><button onClick={() => onAction(`${item.action}.`)}>{item.action} <Icon name="arrowUpRight" size={13} /></button></div></article>)}
+      {suggestion?.abstention || suggestion?.allowed === false ? (
+        <article className="copilot-card copilot-signal"><span className="copilot-card-icon"><Icon name="shield" size={16} /></span><div><small>Abstained</small><p>{suggestion.message || 'Consent or evidence missing.'}</p></div></article>
+      ) : suggestion?.question ? (
+        <article className="copilot-card copilot-followup"><span className="copilot-card-icon"><Icon name="sparkles" size={16} /></span><div><small>{suggestion.fallback ? 'Labelled fallback' : 'Gateway'} · {suggestion.competency || 'rubric'}</small><p>{suggestion.question}</p><button onClick={() => onQueue(suggestion.question)}>Queue privately <Icon name="arrowUpRight" size={13} /></button></div></article>
+      ) : (
+        <article className="copilot-card"><span className="copilot-card-icon"><Icon name="sparkles" size={16} /></span><div><small>Idle</small><p>Enable consent, then refresh to request a grounded follow-up.</p></div></article>
+      )}
     </div>
     {queued.length > 0 && <div className="queued-prompt"><Icon name="check" size={15} /><span><b>{queued.length} prompt{queued.length > 1 ? 's' : ''} queued</b><small>Only you can see these notes.</small></span></div>}
-    <div className="ai-disclosure"><Icon name="shield" size={15} /> AI suggestions require human judgment and are retained in the decision audit trail.</div>
+    <div className="ai-disclosure"><Icon name="shield" size={15} /> AI suggestions require human judgment. Audit stores provider/model/hash, not raw PII.</div>
   </div>;
 }
 
@@ -127,6 +132,9 @@ export function LiveStudio({ onToast, onSaveScorecard, interviewId, invitationTo
   const [transcript, setTranscript] = useState(transcriptSeed);
   const [criteria, setCriteria] = useState(scorecardCriteria);
   const [queued, setQueued] = useState([]);
+  const [aiConsent, setAiConsent] = useState(false);
+  const [copilot, setCopilot] = useState(null);
+  const [copilotBusy, setCopilotBusy] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [realtimeStatus, setRealtimeStatus] = useState({ state: 'local', label: 'Local event adapter' });
   const [remotePeers, setRemotePeers] = useState([]);
@@ -297,12 +305,30 @@ export function LiveStudio({ onToast, onSaveScorecard, interviewId, invitationTo
     const next = { id: Date.now(), speaker: session?.principal?.name || 'You', time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }), text: 'Let’s make the conflict-resolution rule concrete. Which version wins when two edits have the same timestamp?', tone: 'interviewer' };
     setTranscript((items) => [...items, next]);
     setQueued((items) => [...items, 'Conflict resolution']);
-    onToast('A local note was added. Live ASR is not wired (Phase U4).');
+    onToast('A local note was added. Live ASR is not wired.');
+  };
+
+  const refreshCopilot = async () => {
+    setCopilotBusy(true);
+    try {
+      const transcriptText = transcript.map((item) => item.text).join(' ');
+      const result = await platformApi.suggestGroundedFollowUp({
+        transcript: transcriptText,
+        uncovered: ['Accessibility mindset'],
+        consent: { aiProcessing: aiConsent },
+      });
+      setCopilot(result);
+      if (result.allowed === false) onToast('Consent is required before the copilot can run.');
+    } catch (reason) {
+      onToast(reason.message);
+    } finally {
+      setCopilotBusy(false);
+    }
   };
 
   const remoteEntries = Object.entries(remoteStreams);
   const panels = {
-    copilot: <CopilotPanel queued={queued} onAction={(message) => { setQueued((items) => [...items, message]); onToast(message); }} />,
+    copilot: <CopilotPanel queued={queued} suggestion={copilot} loading={copilotBusy} consent={aiConsent} onConsent={() => setAiConsent((value) => !value)} onRefresh={refreshCopilot} onQueue={(message) => { setQueued((items) => [...items, message]); onToast('Queued privately.'); }} />,
     transcript: <TranscriptPanel transcript={transcript} captions={captions} onToggleCaptions={() => setCaptions((value) => { const next = !value; realtimeRef.current?.sendAction('caption.changed', next); return next; })} />,
     scorecard: <ScorecardPanel candidateName={interviewLabel || 'Candidate'} criteria={criteria} onScore={(id, score) => setCriteria((items) => items.map((criterion) => criterion.id === id ? { ...criterion, score } : criterion))} onSubmit={saveScorecard} submitting={submitting} />,
     whiteboard: <WhiteboardPanel strokes={strokes} onStroke={handleWhiteboardStroke} onClear={() => setStrokes([])} />,
@@ -330,7 +356,7 @@ export function LiveStudio({ onToast, onSaveScorecard, interviewId, invitationTo
             {rtcStream ? <LiveTile stream={rtcStream} label="You · local camera" muted blur={enhancement.blur} /> : <PlaceholderTile name={session?.principal?.name || 'You'} role="Enable camera to publish" />}
             {remoteEntries[0] ? <LiveTile stream={remoteEntries[0][1]} label="Remote participant" /> : <PlaceholderTile name="Waiting for peer" role="Second browser joins the same interview id" />}
             {remoteEntries[1] ? <div className="compact-video-grid"><LiveTile stream={remoteEntries[1][1]} label="Peer" compact /></div> : null}
-            <div className="stage-label"><Icon name="sparkles" size={15} /> AI assist is private to interviewers · copilot still seeded</div>
+            <div className="stage-label"><Icon name="sparkles" size={15} /> AI assist is private · consent-gated copilot</div>
           </div>
           <div className="room-controls" aria-label="Video interview controls">
             <button className={`room-control ${muted ? 'is-off' : ''}`} onClick={() => { const next = !muted; setMuted(next); rtcStream?.getAudioTracks().forEach((track) => { track.enabled = !next; }); realtimeRef.current?.sendAction('microphone.changed', next); }} aria-label={muted ? 'Unmute microphone' : 'Mute microphone'}><Icon name={muted ? 'micOff' : 'mic'} size={20} /><span>{muted ? 'Unmute' : 'Mute'}</span></button>

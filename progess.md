@@ -225,7 +225,9 @@ Phases 0–5 in `PROMPT-FINISH-STUBS-PHASED.md` are complete (tested boundaries;
 
 **Phase U3 complete:** Candidate portal uses invitation tokens; Live Studio/RTC join the same room over P2P WebRTC; honest non-SFU banner; getUserMedia/getDisplayMedia user-triggered; tracks stop on leave.
 
-Next: **Phase U4** (assistive AI users can talk to) after approval.
+**Phase U4 complete:** Consent-gated copilot/Intelligence ask path; Ollama/Qdrant probed; labelled deterministic fallback; abstain when thin; audit hashes inputs.
+
+Next: **Phase U5** (Ready + Vault as products) after approval.
 
 ## Production deployment backlog
 

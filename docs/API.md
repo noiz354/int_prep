@@ -93,7 +93,7 @@ All routes below require the authenticated tenant session, relevant permission, 
 |---|---|---|
 | Workflow | `POST /api/interviews/:id/transition`, `GET /api/workflows`, `GET /api/requisitions` | Valid lifecycle transitions and approved hiring loops |
 | Artifacts/jobs | `GET/POST /api/interviews/:id/artifacts`, `GET /api/jobs` | Controlled artifact metadata and local job orchestration |
-| AI | `GET /api/rubrics`, `POST /api/ai/follow-up`, `POST /api/ai/code-evaluation`, `GET/POST /api/ai/models`, `POST /api/interviews/:id/debrief` | Grounded assistant, safe local code evaluation, model/debrief controls |
+| AI | `GET /api/ai/status`, `GET /api/rubrics`, `POST /api/ai/follow-up`, `POST /api/ai/follow-up-grounded`, `POST /api/ai/code-evaluation`, `GET/POST /api/ai/models`, `POST /api/interviews/:id/debrief` | Consent-gated copilot (Ollama or labelled fallback), local code evaluation |
 | Data | `GET /api/data/schemas`, `POST /api/data/schema-validate`, `POST /api/data/telemetry`, `GET /api/data/quality`, `GET /api/data/catalog`, `POST /api/data/replay`, `POST /api/data/deletion` | Contracts, telemetry, quality, lineage, audited replay/deletion jobs |
 | Release/SRE | `GET/POST /api/feature-flags`, `GET /api/operations/slo`, `GET/POST /api/operations/incidents` | Progressive delivery, SLO state, controlled incident records |
 | Security | `GET /api/security/policy`, `POST /api/privacy/redact`, `POST /api/security/envelope-encrypt` | Residency, encryption boundary, PII preview, API protection evidence |

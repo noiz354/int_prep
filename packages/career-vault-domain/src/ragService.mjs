@@ -72,11 +72,11 @@ export function createRagService() {
       if (sessionContext === 'live_assessment') throw new Error('Career Coach is not available during a live hiring assessment.');
       const ranked = retrieve({ tenantId, candidateId, question, evidence, opportunityId });
       if (!ranked.length) {
-        return { answer: null, abstention: true, reason: 'insufficient_permitted_evidence', message: 'There is not enough candidate-authorized evidence to answer that. Add notes, feedback, or practice records, or ask a human coach.', citations: [], suggestedNextAction: 'Add candidate-owned feedback/notes or request human coaching.', confidence: 0, modelVersion: MODEL_VERSION, requiresHumanJudgment: true };
+        return { answer: null, abstention: true, reason: 'insufficient_permitted_evidence', message: 'There is not enough candidate-authorized evidence to answer that. Add notes, feedback, or practice records, or ask a human coach.', citations: [], suggestedNextAction: 'Add candidate-owned feedback/notes or request human coaching.', confidence: 0, modelVersion: MODEL_VERSION, requiresHumanJudgment: true, provider: 'deterministic-fallback', retrieval: 'local-keyword', fallback: true };
       }
       const top = ranked[0].evidence;
       if (ranked[0].score < 14) {
-        return { answer: null, abstention: true, reason: 'low_grounding', message: 'The available candidate-authorized evidence is not specific enough to answer that. Add relevant notes or feedback, or ask a human coach.', citations: [cite(top, 'low relevance candidate evidence')], suggestedNextAction: 'Capture more candidate-owned evidence or request human coaching.', confidence: 0.2, modelVersion: MODEL_VERSION, requiresHumanJudgment: true };
+        return { answer: null, abstention: true, reason: 'low_grounding', message: 'The available candidate-authorized evidence is not specific enough to answer that. Add relevant notes or feedback, or ask a human coach.', citations: [cite(top, 'low relevance candidate evidence')], suggestedNextAction: 'Capture more candidate-owned evidence or request human coaching.', confidence: 0.2, modelVersion: MODEL_VERSION, requiresHumanJudgment: true, provider: 'deterministic-fallback', retrieval: 'local-keyword', fallback: true };
       }
       return {
         answer: `Based on your candidate-owned records, the most relevant evidence is '${top.title}' (${top.date}). This is a ${top.kind} record from ${top.source}.`,
@@ -93,7 +93,7 @@ export function createRagService() {
       if (sessionContext === 'live_assessment') throw new Error('Career Coach is not available during a live hiring assessment.');
       const ranked = retrieve({ tenantId, candidateId, question: 'create a seven day preparation plan', evidence, opportunityId: targetOpportunityId, limit: 8 });
       if (!ranked.length) {
-        return { plan: null, abstention: true, reason: 'insufficient_permitted_evidence', message: 'No candidate-authorized evidence is available to ground a seven-day plan.', citations: [], suggestedNextAction: 'Save a target opportunity and add notes/feedback first.', confidence: 0, modelVersion: MODEL_VERSION, requiresHumanJudgment: true };
+        return { plan: null, abstention: true, reason: 'insufficient_permitted_evidence', message: 'No candidate-authorized evidence is available to ground a seven-day plan.', citations: [], suggestedNextAction: 'Save a target opportunity and add notes/feedback first.', confidence: 0, modelVersion: MODEL_VERSION, requiresHumanJudgment: true, provider: 'deterministic-fallback', retrieval: 'local-keyword', fallback: true };
       }
       const themes = this.clusterFeedbackThemes(evidence);
       const citations = ranked.slice(0, 4).map(({ evidence: item, score: s }) => cite(item, `plan evidence score ${s}`));

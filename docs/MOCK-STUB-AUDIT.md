@@ -35,7 +35,7 @@
 | FE-M-06 | `Dashboard.jsx` | Schedule, metrics, AI briefing, platform health are static | Authenticated dashboard APIs, analytics warehouse, live health telemetry |
 | FE-M-07 | `Interviews.jsx` | Agenda, candidate readiness, panel, status filters are seeded | Persistent interview/scheduling/calendar API and real permissions |
 | FE-M-08 | `LiveStudio.jsx` | **U3:** user-triggered camera + P2P remote tracks + getDisplayMedia. Transcript/copilot still seeded. Code editor still a textarea. | SFU/LiveKit, ASR transcript, Monaco/CRDT |
-| FE-M-09 | `Intelligence.jsx` | Evidence, confidence, model stats, prompt actions are mostly fixed UI values | Actual AI gateway, retrieval evidence, model registry, review queue, evaluation telemetry |
+| FE-M-09 | `Intelligence.jsx` | **U4:** Ask path hits the consent-gated gateway; seed quotes removed. Transcript elsewhere still seeded. | Live ASR, Qdrant retrieval when the vector store is up |
 | FE-M-10 | `DataPulse.jsx` | Event feed, topics, quality, lineage, retention are static/local control data | Kafka, schema registry, lakehouse/catalog, real quality and lineage APIs |
 | FE-M-11 | `TrustCenter.jsx` | Audit/control cards and policy switches are presentation-heavy | Real policy store, audit query, DLP/KMS/residency controls, immutable audit backend |
 | FE-M-12 | `Operations.jsx` | Service map, SLOs, release list, recovery drill visual state are simulated | OTLP, real SLO/alert service, CI/CD provider, DR execution evidence |
@@ -90,7 +90,7 @@
 | AI-M-02 | `services/candidate-coaching-ai/app/main.py` | Deterministic practice questions/feedback/handoff summary | Approved coaching model/RAG adapter, source approval, safety evals, human-review routing |
 | AI-M-03 | `platformServices.mjs` | Follow-up, code evaluation, debrief, model registry use fixed heuristics/static data | Grounded retrieval, sandboxed code execution, durable model registry, reviewer queue |
 | AI-M-04 | `completionServices.mjs` | Interviewer/resume/behavior/sentiment/claim/integrity/language actions are simulated | Real model or deterministic approved policy engine, source evidence, fairness testing, escalation ops |
-| AI-M-05 | `src/data/platformData.js`, `Intelligence.jsx`, `LiveStudio.jsx` | Transcript, copilot, evidence, confidence, integrity, model metrics are seeded | Streaming transcription, real AI outputs, source citations, confidence/evaluation telemetry |
+| AI-M-05 | `Intelligence.jsx`, `LiveStudio.jsx` | **U4:** Copilot is gateway-backed (or labelled fallback). Transcript pane remains seeded until ASR. | Streaming transcription |
 
 ---
 

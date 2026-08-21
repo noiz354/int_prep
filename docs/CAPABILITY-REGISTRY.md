@@ -21,18 +21,18 @@ Almost every row also has `productionGate: blocked_on_decision` until credential
 
 | Product | Total | mocked | local_only | provider_wired | staging_verified | production_deployed | blocked_on_decision |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Interview (PRD) | 100 | 13 | 87 | 0 | 0 | 0 | 0 |
+| Interview (PRD) | 100 | 11 | 89 | 0 | 0 | 0 | 0 |
 | Ready (CR-01…48) | 48 | 26 | 18 | 0 | 0 | 0 | 4 |
 | Vault (CV-01…20) | 20 | 1 | 17 | 0 | 0 | 0 | 2 |
-| **All** | **168** | **40** | **122** | **0** | **0** | **0** | **6** |
+| **All** | **168** | **38** | **124** | **0** | **0** | **0** | **6** |
 
 User-usable (`provider_wired` + `staging_verified` + `production_deployed`): **0**.
 
-## Interview mocked (13)
+## Interview mocked (11)
 
-AI-07, FE-05, FE-06, FE-09, DO-01, DO-02, DO-03, DO-09, DO-10, EO-05, EO-06, EO-07, EO-09.
+FE-05, FE-06, DO-01, DO-02, DO-03, DO-09, DO-10, EO-05, EO-06, EO-07, EO-09.
 
-U3 moved FE-07 (screen share/whiteboard) and FE-10 (AV constraints) from mocked → local_only. Still not an SFU.
+U4 moved AI-07 and FE-09 (copilot) from mocked → local_only. Ollama is not claimed `provider_wired` unless it is actually reachable.
 
 ## Ready blocked (4)
 

@@ -80,7 +80,7 @@ const consentSchema = z.object({
   integrityProcessing: z.boolean(),
   legalNoticeVersion: z.string().trim().min(1).max(80),
 });
-const roomJoinSchema = z.object({ interviewId: z.string().regex(/^int-[a-zA-Z0-9-]+$/) });
+const roomJoinSchema = z.object({ interviewId: z.string().regex(/^int-[a-zA-Z0-9-]+$/), invitationToken: z.string().min(8).max(200).optional() });
 const roomActionSchema = z.object({
   interviewId: z.string().regex(/^int-[a-zA-Z0-9-]+$/),
   action: z.enum(['microphone.changed', 'camera.changed', 'screen-share.changed', 'caption.changed']),
@@ -125,7 +125,7 @@ const aiClaimSchema = z.object({ claim: z.string().min(1).max(2_000), knowledgeS
 const aiIntegritySchema = z.object({ signals: z.array(z.object({ type: z.string().max(100), flagged: z.boolean().optional(), severity: z.string().max(50).optional() })).max(50).optional(), consent: consentGateSchema });
 const aiCoachSchema = z.object({ interviewerText: z.string().min(1).max(10_000), consent: consentGateSchema });
 const aiExplainSchema = z.object({ criteria: z.array(z.object({ id: z.string(), label: z.string().optional(), weight: z.number(), score: z.number().optional(), evidence: z.string().optional() })).max(20).optional(), consent: consentGateSchema });
-const aiFollowUpSchema = z.object({ transcript: z.string().max(10_000).optional(), uncovered: z.array(z.string()).max(10).optional(), consent: consentGateSchema });
+const aiFollowUpSchema = z.object({ transcript: z.string().max(10_000).optional(), uncovered: z.array(z.string()).max(10).optional(), question: z.string().max(2_000).optional(), consent: consentGateSchema });
 const aiDebriefSchema = z.object({ criteria: z.array(z.object({ id: z.string(), label: z.string().optional(), weight: z.number(), score: z.number().optional() })).max(20).optional(), consent: consentGateSchema });
 const stepUpSchema = z.object({ purpose: z.string().max(100).optional(), userId: z.string().min(1).max(100), methods: z.array(z.enum(['passkey', 'totp', 'sms', 'email'])).max(4).optional() });
 const stepUpVerifySchema = z.object({ challengeId: z.string().min(1).max(100), method: z.string().min(1).max(20), verified: z.boolean().optional() });
@@ -407,6 +407,9 @@ app.post('/api/ai/code-evaluation', requirePermission('ai:use'), idempotent, (re
   const response = { data: evaluation }; responses.set(res.locals.idempotencyKey, response); return res.status(201).json(response);
 });
 
+app.get('/api/ai/status', requirePermission('ai:use'), async (_req, res) => {
+  return res.json({ data: await aiServices.providerStatus() });
+});
 app.get('/api/ai/models', requirePermission('ai:use'), (_req, res) => res.json({ data: platform.modelRegistry() }));
 app.post('/api/ai/models/:id/stage', requirePermission('workflow:write'), idempotent, (req, res) => {
   try {
@@ -1108,11 +1111,25 @@ io.on('connection', (socket) => {
 
   socket.on('room.action', (rawInput, acknowledge = () => {}) => {
     const parsed = roomActionSchema.safeParse(rawInput);
-    if (!parsed.success || !hasPermission(principal, 'interview:room:join', { interviewId: rawInput?.interviewId })) {
+    const room = parsed.success ? `interview:${parsed.data.interviewId}` : null;
+    if (!parsed.success || !socket.data.joinedRooms?.includes(room)) {
       return acknowledge({ ok: false, error: 'Room action denied' });
     }
-    const room = `interview:${parsed.data.interviewId}`;
     socket.to(room).emit('room.action', { userId: principal.id, name: principal.name, ...parsed.data });
+    return acknowledge({ ok: true });
+  });
+
+  socket.on('room.signal', (rawInput, acknowledge = () => {}) => {
+    const parsed = parseRoomSignal(rawInput);
+    if (!parsed.ok) return acknowledge({ ok: false, error: parsed.error });
+    const room = `interview:${parsed.data.interviewId}`;
+    if (!socket.data.joinedRooms?.includes(room)) return acknowledge({ ok: false, error: 'Not in room' });
+    socket.to(room).emit('room.signal', {
+      userId: principal.id,
+      name: principal.name,
+      kind: parsed.data.kind,
+      payload: { ...(parsed.data.payload || {}), from: principal.id },
+    });
     return acknowledge({ ok: true });
   });
 
